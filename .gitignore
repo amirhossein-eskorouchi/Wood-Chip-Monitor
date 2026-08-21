@@ -83,16 +83,14 @@ temp/
 
 
 # ------------------------------------------------------------
-# Local model-artifact storage
-#
-# The source/model definitions in models/ are tracked, but trained
-# weights and deployment/export artifacts should remain local.
-# ------------------------------------------------------------
-/models/artifacts/
-
-
-# ------------------------------------------------------------
 # Machine-learning model artifacts
+#
+# Model binaries are ignored by default. The complete archived
+# model-artifact set under models/artifacts/ is explicitly
+# re-included below because this is a private research repository.
+#
+# Large binary files in models/artifacts/ should be tracked
+# using Git LFS.
 # ------------------------------------------------------------
 *.engine
 *.onnx
@@ -103,15 +101,44 @@ temp/
 *.plan
 *.weights
 
+
+# ------------------------------------------------------------
 # TensorFlow / Keras model artifacts
+# ------------------------------------------------------------
 *.h5
 *.hdf5
 *.keras
 
+
+# ------------------------------------------------------------
 # Additional deployment/model formats
+# ------------------------------------------------------------
 *.tflite
 *.pb
 *.uff
+
+
+# ------------------------------------------------------------
+# Private model-artifact archive
+#
+# Re-include the complete Wood-Chip Monitor artifact directory
+# even though these file types are ignored globally above.
+#
+# Expected archived files currently include:
+#
+#   best-detr.ckpt
+#   detr_resnet101.onnx
+#   detr_resnet101_simplified.onnx
+#   moistnetlite_best_weights.h5
+#   moistnetlite_classes.txt
+#   moistnetlite_dynamic.onnx
+#   moistnetlite_dynamic_simplified.onnx
+#
+# Binary model files in this directory should be managed using
+# Git LFS.
+# ------------------------------------------------------------
+!/models/artifacts/
+!/models/artifacts/**
 
 
 # ------------------------------------------------------------
@@ -147,12 +174,10 @@ cache/
 # ------------------------------------------------------------
 # Research papers, reports, and manuscript PDFs
 #
-# Publications and project reports should be linked from the
-# repository rather than stored as binary PDFs.
+# Publications and project reports should generally be linked
+# from the repository rather than stored as binary PDFs.
 # ------------------------------------------------------------
 *.pdf
-
-
 
 
 # ------------------------------------------------------------
