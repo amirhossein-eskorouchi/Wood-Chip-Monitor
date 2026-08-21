@@ -164,6 +164,10 @@ Reference environment information is documented in:
 
 **[`docs/jetson-setup.md`](docs/jetson-setup.md)**
 
+Additional information about the integrated edge-computing platform and mechanical prototype is available in:
+
+**[`hardware/README.md`](hardware/README.md)**
+
 ---
 
 ## AI Components
@@ -698,6 +702,16 @@ The repository currently includes:
 The repository will remain under preparation until the public release materials are validated.
 
 ---
+
+
+## Acknowledgments
+
+Wood-Chip Monitor was developed through contributions spanning computer vision, edge-AI deployment, quality analytics, and physical system integration.
+
+Contributor roles and project acknowledgments are documented in:
+
+**[`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md)**
+
 
 ## Citation
 
