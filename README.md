@@ -274,6 +274,12 @@ The backend service is maintained in:
 app/backend_app.py
 ```
 
+## User Documentation
+
+Operator-facing functionality, role-based access, monitoring controls, events, quality rules, audit logs, and device-health features are documented in:
+
+**[`docs/user-guide.md`](docs/user-guide.md)**
+
 ---
 
 ## Example Detection Results
@@ -522,80 +528,50 @@ Exact dependency versions will only be published when they have been verified ag
 
 ## Validation
 
-The original system-development workflow included staged validation from workstation inference through TensorRT deployment on the Jetson device.
+The deployment pipeline was developed through staged validation from reference workstation processing to manual preprocessing/post-processing reconstruction, Jetson TensorRT inference, and integrated size analytics.
 
-The development process included checks of:
+A compact record of these development stages is preserved in:
 
-```text
-Reference model inference
-        │
-        ▼
-Manual preprocessing / postprocessing verification
-        │
-        ▼
-TensorRT inference
-        │
-        ▼
-Jetson deployment
-        │
-        ▼
-Size analytics
-        │
-        ▼
-Complete monitoring pipeline
-```
+**[`validation/README.md`](validation/README.md)**
 
-Large intermediate development artifacts, repeated outputs, and numerical arrays are intentionally not committed to the public repository.
-
-A concise validation record will be maintained separately so that the repository preserves meaningful reproducibility evidence without becoming a raw development archive.
-
+Representative historical outputs are included for transparency and provenance without committing the large intermediate tensors and duplicated development artifacts from the original archive.
 ---
 
 ## Repository Structure
 
-```text
 Wood-Chip-Monitor/
-│
 ├── app/
-│   ├── __init__.py
 │   ├── backend_app.py
 │   ├── live_cam_trt.py
-│   │
 │   └── web/
 │       └── index.html
-│
 ├── assets/
-│   ├── dashboard.png
-│   ├── prototype.png
-│   ├── size_boxplot.png
-│   └── size_distribution.png
-│
 ├── configs/
 │   └── device.env.example
-│
 ├── docs/
 │   ├── architecture.md
 │   ├── jetson-setup.md
-│   └── software-environment.md
-│
+│   ├── software-environment.md
+│   └── user-guide.md
 ├── examples/
 │   ├── images/
 │   └── predictions/
-│
 ├── models/
 │   ├── moistnetlite.py
 │   └── README.md
-│
 ├── tools/
 │   ├── infer_trt.py
 │   └── README.md
-│
-├── .gitattributes
+├── validation/
+│   ├── jetson_tensorrt.csv
+│   ├── manual_processing.csv
+│   ├── reference_processing.csv
+│   ├── size_statistics.csv
+│   └── README.md
 ├── .gitignore
 └── README.md
-```
 
-Additional validation, user, and deployment documentation will be added as the corresponding materials are prepared for the public research-software release.
+
 
 ---
 
