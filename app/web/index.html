@@ -1,0 +1,2388 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Wood-chip Monitor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    /* =========================
+       THEME TOKENS (Night default)
+       ========================= */
+    :root {
+      --bg: #101010;
+      --bg-panel: #181818;
+      --bg-panel-2: #151515;
+      --border: #333;
+      --text: #f0f0f0;
+      --muted: #888;
+      --accent: #2a6ee8;
+      --accent-hover: #3b7cff;
+      --warning: #ffb347;
+      --error: #ff6b6b;
+      --success: #8ae68a;
+
+      --shadow: 0 0 8px rgba(0,0,0,0.4);
+      --overlay-dim: rgba(0,0,0,0.68);
+
+      --highlight: rgba(42, 110, 232, 0.95);
+      --highlight-border: rgba(255,255,255,0.35);
+      --tooltip-bg: #181818;
+    }
+
+    /* Light theme overrides */
+    body.theme-light {
+      --bg: #f6f7fb;
+      --bg-panel: #ffffff;
+      --bg-panel-2: #f3f4f7;
+      --border: #d7d9e0;
+      --text: #1a1a1a;
+      --muted: #5d6570;
+      --accent: #1f66ff;
+      --accent-hover: #1657df;
+      --warning: #b85c00;
+      --error: #d23a3a;
+      --success: #1f8f3a;
+
+      --shadow: 0 8px 18px rgba(0,0,0,0.08);
+      --overlay-dim: rgba(20,20,20,0.55);
+
+      --highlight: rgba(31, 102, 255, 0.9);
+      --highlight-border: rgba(0,0,0,0.22);
+      --tooltip-bg: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .header {
+      padding: 10px 16px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .header-title { font-size: 18px; font-weight: 700; letter-spacing: 0.2px; }
+    .header-subtitle { font-size: 11px; color: var(--muted); }
+
+    .header-right { display: flex; gap: 10px; align-items: center; }
+    .header-status { font-size: 13px; color: var(--success); white-space: nowrap; }
+
+    .pill {
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--bg-panel-2);
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .btn {
+      background: var(--accent);
+      color: var(--text);
+      border: none;
+      border-radius: 8px;
+      padding: 7px 11px;
+      cursor: pointer;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .btn-ghost { background: transparent; border: 1px solid var(--border); }
+    .btn-ghost:hover { border-color: var(--accent-hover); }
+    .btn-secondary { background: transparent; border: 1px solid var(--border); }
+    .btn-secondary:hover { border-color: var(--accent-hover); }
+
+    .main {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* =========================
+       APP NAV
+       ========================= */
+    .nav {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-panel);
+      overflow-x: auto;
+    }
+    .nav a {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .nav a.active {
+      color: var(--text);
+      border-color: rgba(42,110,232,0.65);
+      background: rgba(42,110,232,0.16);
+    }
+    body.theme-light .nav a.active {
+      border-color: rgba(31,102,255,0.6);
+      background: rgba(31,102,255,0.12);
+    }
+
+    .spacer { flex: 1; }
+    .nav-right { display: flex; gap: 8px; align-items: center; }
+
+    /* =========================
+       PAGES
+       ========================= */
+    .page {
+      display: none;
+      flex: 1;
+      min-height: 0;
+    }
+    .page.active { display: flex; flex-direction: column; min-height: 0; }
+
+    /* ===== Main 2-column layout (Live) ===== */
+    .top-row {
+      flex: 1;
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      border-radius: 12px;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .panel h2, .panel h3 {
+      margin: 0 0 8px 0;
+      font-size: 15px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+
+    /* Left side: LIVE VIEW takes full height */
+    .live-panel { flex: 1 1 auto; min-width: 0; min-height: 0; }
+
+    .live-content {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      border-radius: 10px;
+    }
+
+    #video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #000;
+      object-fit: cover;
+      display: block;
+    }
+
+    .live-legend {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.45);
+      backdrop-filter: blur(2px);
+      pointer-events: none;
+    }
+    body.theme-light .live-legend {
+      background: rgba(255,255,255,0.55);
+      border: 1px solid rgba(0,0,0,0.12);
+    }
+
+    .legend-row {
+      display: grid;
+      grid-template-columns: 44px 1fr 44px;
+      gap: 10px;
+      align-items: center;
+    }
+    .legend-label { font-size: 11px; color: #ddd; text-align: center; user-select: none; }
+    body.theme-light .legend-label { color: #222; }
+
+    .legend-bar {
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: linear-gradient(to right, #35d04a, #ff3b3b);
+    }
+    body.theme-light .legend-bar { border: 1px solid rgba(0,0,0,0.14); }
+
+    .legend-notes {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: #d0d0d0;
+      user-select: none;
+    }
+    body.theme-light .legend-notes { color: #333; }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .legend-dot.ref { background: transparent; border: 2px solid #ffffff; }
+    body.theme-light .legend-dot.ref { border: 2px solid #111; }
+    .legend-dot.alarm { background: #ff3b3b; border: 1px solid rgba(0,0,0,0.3); }
+
+    /* Right stack */
+    .right-stack {
+      flex: 0 0 340px;
+      max-width: 420px;
+      min-width: 300px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .stats-panel { font-size: 13px; }
+    .stat-line { margin: 3px 0; font-size: 13px; }
+    .stat-label { color: #bbbbbb; }
+    body.theme-light .stat-label { color: #4a5160; }
+    .stat-value { font-weight: 600; }
+    .stat-warning { color: var(--warning); }
+    .stat-error { color: var(--error); }
+
+    /* Histogram */
+    .hist-panel { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    .hist-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .hist-header-left h3 { margin: 0; font-size: 14px; border: none; padding: 0; }
+    .hist-subtitle { font-size: 11px; color: var(--muted); }
+    /* Oversize % (make it readable) */
+    #hist-over-info { font-size: 14px; font-weight: 800; color: var(--text); }
+    body.theme-light #hist-over-info { color: var(--text); }
+    .hist-canvas {
+      width: 100%;
+      height: 180px;
+      border-radius: 8px;
+      background: var(--bg-panel-2);
+      border: 1px solid var(--border);
+      display: block;
+    }
+
+    /* Moisture */
+    .moist-panel { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+    .moist-panel h3 { margin: 0; font-size: 14px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+
+    .moist-grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px 10px;
+      font-size: 13px;
+      align-items: baseline;
+    }
+    .moist-kv-key { color: #bbbbbb; }
+    body.theme-light .moist-kv-key { color: #4a5160; }
+    .moist-kv-val { font-weight: 700; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      background: var(--bg-panel-2);
+    }
+    .badge-ok { color: var(--success); }
+    .badge-warn { color: var(--warning); }
+    .badge-err { color: var(--error); }
+
+    .prob-bars { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+    .prob-row {
+      display: grid;
+      grid-template-columns: 70px 1fr 42px;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+      color: #ddd;
+    }
+    body.theme-light .prob-row { color: #1a1a1a; }
+
+    .bar {
+      height: 10px;
+      border-radius: 999px;
+      background: var(--bg-panel-2);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .bar > div { height: 100%; width: 0%; background: #4da6ff; }
+    body.theme-light .bar > div { background: #1f66ff; }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color: #cfcfcf;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    body.theme-light .mono { color: #303744; }
+
+    .footer {
+      padding: 7px 16px 10px;
+      font-size: 11px;
+      color: #777;
+      border-top: 1px solid var(--border);
+      text-align: right;
+      background: var(--bg-panel);
+    }
+    body.theme-light .footer { color: #5d6570; }
+
+    /* =========================
+       Controls slide-in
+       ========================= */
+    .controls-panel-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: none;
+      z-index: 50;
+    }
+    body.theme-light .controls-panel-backdrop { background: rgba(20,20,20,0.35); }
+    .controls-panel-backdrop.open { display: block; }
+
+    .controls-panel {
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 360px;
+      max-width: 92vw;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      box-shadow: -2px 0 14px rgba(0,0,0,0.35);
+      transform: translateX(100%);
+      transition: transform 0.18s ease-out;
+      display: flex;
+      flex-direction: column;
+    }
+    .controls-panel.open { transform: translateX(0); }
+
+    .controls-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .controls-header h2 { margin: 0; font-size: 15px; }
+    .controls-body { padding: 10px 12px 14px; overflow-y: auto; font-size: 13px; }
+    .controls-group { margin-bottom: 12px; }
+    .controls-group label { font-size: 12px; color: #bbbbbb; display: block; margin-bottom: 2px; }
+    body.theme-light .controls-group label { color: #4a5160; }
+    .controls-group small { font-size: 11px; color: var(--muted); }
+
+    input[type="number"], input[type="text"], input[type="password"], select {
+      width: 100%;
+      background: var(--bg-panel-2);
+      color: var(--text);
+      border: 1px solid rgba(0,0,0,0.25);
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 13px;
+      outline: none;
+    }
+    body.theme-light input[type="number"], body.theme-light input[type="text"], body.theme-light input[type="password"], body.theme-light select {
+      border: 1px solid var(--border);
+    }
+
+    input[type="checkbox"] { margin-right: 6px; }
+    .controls-divider { border-top: 1px solid var(--border); margin: 12px 0; }
+    .controls-footer {
+      padding: 9px 12px 11px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .hint { font-size: 12px; color: var(--muted); }
+    .hint.err { color: var(--error); }
+    .hint.ok { color: var(--success); }
+
+    /* =========================
+       Tables (Events/Audit)
+       ========================= */
+    .page-inner {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 12px 14px;
+    }
+
+    .table-wrap {
+      min-height: 0;
+      flex: 1;
+      overflow: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--bg-panel);
+      box-shadow: var(--shadow);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      padding: 10px 10px;
+      color: var(--muted);
+      font-weight: 600;
+      z-index: 2;
+      white-space: nowrap;
+    }
+
+    tbody td {
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding: 10px 10px;
+      white-space: nowrap;
+    }
+    body.theme-light tbody td { border-bottom: 1px solid rgba(0,0,0,0.06); }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      background: var(--bg-panel-2);
+    }
+    .tag.red { color: var(--error); }
+    .tag.green { color: var(--success); }
+    .tag.yellow { color: var(--warning); }
+
+    /* =========================
+       Login
+       ========================= */
+    .login-shell {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+    .login-card {
+      width: min(520px, 96vw);
+      border-radius: 16px;
+      padding: 18px 18px 16px;
+    }
+    .login-title { font-size: 18px; font-weight: 800; margin-bottom: 6px; }
+    .login-sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; line-height: 1.35; }
+    .login-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .login-actions { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-top: 10px; }
+    .login-err { color: var(--error); font-size: 12px; }
+    .login-ok { color: var(--success); font-size: 12px; }
+
+    /* Responsive */
+    @media (max-width: 980px) {
+      .top-row { flex-direction: column; }
+      .right-stack { max-width: 100%; min-width: 0; flex: 1 1 auto; }
+      .hist-canvas { height: 220px; }
+    }
+
+    /* =========================
+       TOUR (kept from your file)
+       ========================= */
+    #app-shell { display: flex; flex-direction: column; height: 100vh; }
+    .app-locked { pointer-events: none; user-select: none; }
+
+    .tour-layer { position: fixed; inset: 0; display: none; z-index: 120; }
+    .tour-layer.open { display: block; }
+    .tour-dim { position: absolute; inset: 0; background: var(--overlay-dim); }
+    .tour-highlight {
+      position: absolute;
+      border-radius: 12px;
+      border: 2px solid var(--highlight-border);
+      box-shadow: 0 0 0 4px rgba(255,255,255,0.08), 0 12px 28px rgba(0,0,0,0.55);
+      pointer-events: none;
+    }
+    .tour-hole { position: absolute; border-radius: 12px; box-shadow: 0 0 0 9999px var(--overlay-dim); pointer-events: none; }
+
+    .tour-tooltip {
+      position: absolute;
+      width: min(420px, 92vw);
+      background: var(--tooltip-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 14px 40px rgba(0,0,0,0.45);
+      padding: 12px 14px;
+      color: var(--text);
+    }
+
+    .tour-title { font-weight: 800; font-size: 14px; margin-bottom: 6px; }
+    .tour-text { font-size: 13px; color: var(--text); line-height: 1.35; }
+    .tour-sub { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+    .tour-footer {
+      margin-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .tour-progress { font-size: 12px; color: var(--muted); user-select: none; }
+    .tour-actions { display: flex; gap: 8px; align-items: center; }
+  </style>
+</head>
+
+<body>
+  <div id="app-shell">
+    <div class="header">
+      <div class="header-left">
+        <div class="header-title">Wood-chip Monitor</div>
+        <div class="header-subtitle">Live monitoring, events, quality rules, audit, and device health</div>
+      </div>
+      <div class="header-right">
+        <div class="header-status" id="status-text">Backend: connecting…</div>
+        <span class="pill" id="pill-user" style="display:none;"></span>
+        <button class="btn btn-ghost" id="btn-toggle-controls" style="display:none;">⚙ Filters / Controls</button>
+      </div>
+    </div>
+
+    <!-- NAV -->
+    <div class="nav" id="nav" style="display:none;">
+      <a href="#/live" id="nav-live">📷 Live</a>
+      <a href="#/events" id="nav-events">🧾 Events</a>
+      <a href="#/quality" id="nav-quality" style="display:none;">🛠 Quality Rules</a>
+      <a href="#/audit" id="nav-audit" style="display:none;">🧷 Audit</a>
+      <a href="#/devices" id="nav-devices" style="display:none;">🩺 Devices</a>
+
+      <div class="spacer"></div>
+      <div class="nav-right">
+        <button class="btn btn-ghost" id="btn-logout">Logout</button>
+      </div>
+    </div>
+
+    <div class="main">
+
+      <!-- LOGIN PAGE -->
+      <div class="page" id="page-login">
+        <div class="login-shell">
+          <div class="card login-card">
+            <div class="login-title">Sign in</div>
+            <div class="login-sub">
+              Use your assigned account to access monitoring, events, and quality controls.
+              <div class="hint" style="margin-top:6px;">Admin tip: bootstrap with <span class="mono">WOODCHIP_ADMIN_EMAIL / WOODCHIP_ADMIN_PASSWORD</span>.</div>
+            </div>
+
+            <div class="login-grid">
+              <div>
+                <label class="hint">Email</label>
+                <input type="text" id="login-email" placeholder="name@company.com" autocomplete="username" />
+              </div>
+              <div>
+                <label class="hint">Password</label>
+                <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" />
+              </div>
+            </div>
+
+            <div class="login-actions">
+              <button class="btn" id="btn-login">Login</button>
+              <div id="login-msg" class="login-err"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE PAGE -->
+      <div class="page" id="page-live">
+        <div class="top-row">
+
+          <!-- LEFT: Live View -->
+          <div class="panel live-panel" id="panel-live">
+            <h2>Live View</h2>
+            <div class="live-content">
+              <img id="video" src="" alt="Live camera feed" />
+              <div class="live-legend">
+                <div class="legend-row">
+                  <div class="legend-label">Normal</div>
+                  <div class="legend-bar"></div>
+                  <div class="legend-label">Oversize</div>
+                </div>
+                <div class="legend-notes">
+                  <span><span class="legend-dot ref"></span>Reference disk</span>
+                  <span><span class="legend-dot alarm"></span>Oversize chip</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT stack -->
+          <div class="right-stack">
+            <div class="panel stats-panel" id="panel-stats">
+              <h2>Live Statistics</h2>
+              <div class="stat-line" id="stat-ready">
+                <span class="stat-label">Status:</span>
+                <span class="stat-value stat-warning">Collecting…</span>
+              </div>
+              <div class="stat-line" id="stat-units"></div>
+              <div class="stat-line" id="stat-mean"></div>
+              <div class="stat-line" id="stat-median"></div>
+              <div class="stat-line" id="stat-std"></div>
+              <div class="stat-line" id="stat-min"></div>
+              <div class="stat-line" id="stat-max"></div>
+              <div class="stat-line" id="stat-batch"></div>
+              <div class="stat-line" id="stat-scale"></div>
+              <div class="stat-line" id="stat-alarm"></div>
+            </div>
+
+            <div class="panel hist-panel" id="panel-hist">
+              <div class="hist-header">
+                <div class="hist-header-left">
+                  <h3 id="hist-title">Diameter Distribution</h3>
+                  <div class="hist-subtitle">Diameter-only distribution (rolling window)</div>
+                  <div class="hist-subtitle" id="hist-over-info"></div>
+                </div>
+                <div class="hist-header-right">
+                  <span class="hist-subtitle">Type:</span>
+                  <select id="select-hist-type" disabled>
+                    <option value="diameter">Diameter</option>
+                  </select>
+                </div>
+              </div>
+              <canvas id="hist-diam" class="hist-canvas" width="600" height="220"></canvas>
+            </div>
+
+            <div class="panel moist-panel" id="panel-moist">
+              <h3>Moisture</h3>
+
+              <div class="moist-grid">
+                <div class="moist-kv-key">Status</div>
+                <div class="moist-kv-val" id="moist-status">
+                  <span class="badge badge-warn">Collecting…</span>
+                </div>
+
+                <div class="moist-kv-key">Prediction</div>
+                <div class="moist-kv-val" id="moist-pred">—</div>
+
+                <div class="moist-kv-key">Top-K</div>
+                <div class="moist-kv-val" id="moist-topk">—</div>
+
+                <div class="moist-kv-key">Boxes used</div>
+                <div class="moist-kv-val" id="moist-used">—</div>
+
+                <div class="moist-kv-key">Last update</div>
+                <div class="moist-kv-val mono" id="moist-ts">—</div>
+              </div>
+
+              <div class="prob-bars" id="moist-probs"></div>
+              <div class="hist-subtitle" id="moist-classes">Classes: —</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- EVENTS PAGE -->
+      <div class="page" id="page-events">
+        <div class="page-inner">
+          <div class="row">
+            <div class="card" style="flex:1; min-width: 280px;">
+              <div style="font-weight:800; margin-bottom:6px;">Events</div>
+              <div class="hint">Browse history and export CSV for QA reporting.</div>
+
+              <div class="row" style="margin-top:10px;">
+                <div style="min-width:210px; flex: 1;">
+                  <label class="hint">Start (local)</label>
+                  <input type="text" id="events-start" placeholder="YYYY-MM-DD HH:MM" />
+                </div>
+                <div style="min-width:210px; flex: 1;">
+                  <label class="hint">End (local)</label>
+                  <input type="text" id="events-end" placeholder="YYYY-MM-DD HH:MM" />
+                </div>
+                <div style="min-width:140px;">
+                  <label class="hint">Alarm only</label>
+                  <label style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+                    <input type="checkbox" id="events-alarm-only" />
+                    Oversize only
+                  </label>
+                </div>
+                <div style="min-width:140px;">
+                  <label class="hint">Limit</label>
+                  <input type="number" id="events-limit" value="200" min="1" max="5000" step="50" />
+                </div>
+                <div style="display:flex; gap:8px; align-items:flex-end;">
+                  <button class="btn" id="btn-events-refresh">Refresh</button>
+                  <button class="btn btn-ghost" id="btn-events-export" disabled>Export CSV</button>
+                </div>
+              </div>
+
+              <div class="hint" id="events-msg" style="margin-top:8px;"></div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Alarm</th>
+                  <th>Max D (mm)</th>
+                  <th>Mean D</th>
+                  <th>Std D</th>
+                  <th>Units</th>
+                  <th>Moisture</th>
+                  <th>Device</th>
+                </tr>
+              </thead>
+              <tbody id="events-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- QUALITY RULES PAGE -->
+      <div class="page" id="page-quality">
+        <div class="page-inner">
+          <div class="row">
+            <div class="card" style="flex:1; min-width: 320px;">
+              <div style="font-weight:800; margin-bottom:6px;">Quality Rules</div>
+              <div class="hint">Versioned configuration (thresholds + detector settings). Update requires permission.</div>
+
+              <div class="row" style="margin-top:10px;">
+                <div style="min-width:200px; flex:1;">
+                  <label class="hint">Alarm threshold (mm)</label>
+                  <input type="number" id="qr-alarm-thr" min="0" step="1" />
+                </div>
+                <div style="min-width:200px; flex:1;">
+                  <label class="hint">Ref disk diameter (mm)</label>
+                  <input type="number" id="qr-ref-mm" min="1" step="0.5" />
+                </div>
+                <div style="min-width:200px; flex:1;">
+                  <label class="hint">Conf thr (0–1)</label>
+                  <input type="number" id="qr-conf" min="0" max="1" step="0.05" />
+                </div>
+                <div style="min-width:200px; flex:1;">
+                  <label class="hint">NMS IoU (0–1)</label>
+                  <input type="number" id="qr-nms" min="0" max="1" step="0.05" />
+                </div>
+              </div>
+
+              <div class="row">
+                <div style="min-width:240px;">
+                  <label class="hint">Alarm enabled</label>
+                  <label style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+                    <input type="checkbox" id="qr-alarm-enabled" />
+                    Enabled
+                  </label>
+                </div>
+
+                <div style="min-width:240px;">
+                  <label class="hint">Moisture enabled</label>
+                  <label style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+                    <input type="checkbox" id="qr-moist-enabled" />
+                    Enabled
+                  </label>
+                </div>
+
+                <div style="min-width:180px;">
+                  <label class="hint">Moisture top-K</label>
+                  <input type="number" id="qr-moist-topk" min="1" max="64" step="1" />
+                </div>
+
+                <div style="min-width:200px;">
+                  <label class="hint">Moisture every N</label>
+                  <input type="number" id="qr-moist-every" min="1" max="120" step="1" />
+                </div>
+              </div>
+
+              <div class="row" style="margin-top:6px;">
+                <div style="flex: 1; min-width: 260px;">
+                  <label class="hint">Reason (audit trail)</label>
+                  <input type="text" id="qr-reason" placeholder="e.g., Tune oversize threshold for new batch" />
+                </div>
+                <div style="display:flex; gap:8px; align-items:flex-end;">
+                  <button class="btn" id="btn-qr-refresh">Reload</button>
+                  <button class="btn" id="btn-qr-apply" disabled>Apply new version</button>
+                </div>
+              </div>
+
+              <div class="hint" id="qr-msg" style="margin-top:8px;"></div>
+            </div>
+          </div>
+
+          <div class="row" style="gap:12px;">
+            <div class="card" style="flex:1; min-width: 320px;">
+              <div style="font-weight:800; margin-bottom:6px;">Versions</div>
+              <div class="hint">Rollback creates a new applied version equal to the selected version.</div>
+              <div class="row" style="margin-top:8px;">
+                <button class="btn btn-ghost" id="btn-qr-load-versions">Load versions</button>
+              </div>
+
+              <div class="table-wrap" style="margin-top:10px; max-height: 360px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Version</th>
+                      <th>Created</th>
+                      <th>By</th>
+                      <th>Reason</th>
+                      <th>Applied</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="qr-versions-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AUDIT PAGE -->
+      <div class="page" id="page-audit">
+        <div class="page-inner">
+          <div class="row">
+            <div class="card" style="flex:1; min-width: 320px;">
+              <div style="font-weight:800; margin-bottom:6px;">Audit Log</div>
+              <div class="hint">Who did what, when (logins, rules changes, exports, errors).</div>
+              <div class="row" style="margin-top:10px;">
+                <div style="min-width:140px;">
+                  <label class="hint">Limit</label>
+                  <input type="number" id="audit-limit" value="200" min="1" max="2000" step="50" />
+                </div>
+                <button class="btn" id="btn-audit-refresh">Refresh</button>
+                <div class="hint" id="audit-msg"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>User</th>
+                  <th>Action</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- DEVICES PAGE -->
+      <div class="page" id="page-devices">
+        <div class="page-inner">
+          <div class="row">
+            <div class="card" style="flex:1; min-width: 320px;">
+              <div style="font-weight:800; margin-bottom:6px;">Device Health</div>
+              <div class="hint">Status of camera + inference loop.</div>
+              <div class="row" style="margin-top:10px;">
+                <button class="btn" id="btn-dev-refresh">Refresh</button>
+                <div class="hint" id="dev-msg"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row" style="gap:16px;">
+              <div style="min-width: 260px;">
+                <div class="hint">Camera</div>
+                <div id="dev-camera" style="font-weight:800;">—</div>
+              </div>
+              <div style="min-width: 260px;">
+                <div class="hint">Last frame</div>
+                <div id="dev-last-frame" class="mono">—</div>
+              </div>
+              <div style="min-width: 260px;">
+                <div class="hint">Last DETR infer</div>
+                <div id="dev-last-detr" class="mono">—</div>
+              </div>
+              <div style="min-width: 260px;">
+                <div class="hint">FPS (smoothed)</div>
+                <div id="dev-fps" style="font-weight:800;">—</div>
+              </div>
+            </div>
+
+            <div class="row" style="gap:16px; margin-top:10px;">
+              <div style="min-width: 260px;">
+                <div class="hint">Uptime</div>
+                <div id="dev-uptime" style="font-weight:800;">—</div>
+              </div>
+              <div style="min-width: 260px;">
+                <div class="hint">Alarm</div>
+                <div id="dev-alarm" style="font-weight:800;">—</div>
+              </div>
+              <div style="min-width: 260px;">
+                <div class="hint">Last error</div>
+                <div id="dev-error" class="mono">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="footer">
+      Backend: <span id="footer-host"></span>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls-panel-backdrop" id="controls-backdrop">
+      <div class="controls-panel" id="controls-panel">
+        <div class="controls-header">
+          <h2>Filters & Controls</h2>
+          <button class="btn btn-ghost" id="btn-close-controls">✕</button>
+        </div>
+
+        <div class="controls-body">
+          <!-- Theme Toggle -->
+          <div class="controls-group" id="group-theme">
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input id="input-theme-light" type="checkbox" />
+              Day mode (light theme)
+            </label>
+            <small>Switch between night/day appearance. Saved on this device.</small>
+          </div>
+
+          <div class="controls-divider"></div>
+
+          <div class="controls-group" id="group-alarm-thr">
+            <label for="input-alarm-threshold">Alarm threshold (mm)</label>
+            <input id="input-alarm-threshold" type="number" min="0" step="1" />
+            <small>Chips above this size trigger the oversize alarm and are highlighted in red.</small>
+          </div>
+
+          <div class="controls-group" id="group-alarm-enable">
+            <label>
+              <input id="input-alarm-enabled" type="checkbox" />
+              Enable oversize alarm
+            </label>
+            <small>When enabled, oversize detections are emphasized in the live view.</small>
+          </div>
+
+          <div class="controls-group" id="group-ref">
+            <label for="input-ref-size">Reference disk diameter (mm)</label>
+            <input id="input-ref-size" type="number" min="1" step="0.5" placeholder="e.g., 110" />
+            <small>(Optional) Actual diameter of the reference disk used for calibration.</small>
+          </div>
+
+          <div class="controls-group" id="group-conf">
+            <label for="input-conf-thr">Detection confidence threshold (0–1)</label>
+            <input id="input-conf-thr" type="number" min="0" max="1" step="0.05" />
+          </div>
+
+          <div class="controls-group" id="group-nms">
+            <label for="input-nms-iou">NMS IoU threshold (0–1)</label>
+            <input id="input-nms-iou" type="number" min="0" max="1" step="0.05" />
+          </div>
+
+          <div class="controls-divider"></div>
+
+          <div class="controls-group" id="group-moist-enable">
+            <label>
+              <input id="input-moist-enabled" type="checkbox" />
+              Enable moisture inference
+            </label>
+            <small>Runs moisture model on chip crops (top-K by detector confidence).</small>
+          </div>
+
+          <div class="controls-group" id="group-moist-topk">
+            <label for="input-moist-topk">Moisture top-K crops</label>
+            <input id="input-moist-topk" type="number" min="1" max="64" step="1" />
+          </div>
+
+          <div class="controls-group" id="group-moist-every">
+            <label for="input-moist-every">Moisture every N processed frames</label>
+            <input id="input-moist-every" type="number" min="1" max="120" step="1" />
+          </div>
+
+          <div class="controls-divider"></div>
+
+          <div class="controls-group">
+            <div class="hint" id="controls-perm-hint"></div>
+          </div>
+        </div>
+
+        <div class="controls-footer">
+          <button class="btn btn-ghost" id="btn-cancel-controls">Close</button>
+          <button class="btn" id="btn-save-config">Apply</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TOUR UI -->
+  <div class="tour-layer" id="tour-layer" aria-hidden="false">
+    <div class="tour-dim"></div>
+    <div class="tour-hole" id="tour-hole"></div>
+    <div class="tour-highlight" id="tour-highlight"></div>
+
+    <div class="tour-tooltip" id="tour-tooltip" role="dialog" aria-modal="true">
+      <div class="tour-title" id="tour-title">Welcome</div>
+      <div class="tour-text" id="tour-text"></div>
+      <div class="tour-sub" id="tour-sub"></div>
+
+      <div class="tour-footer">
+        <div class="tour-progress" id="tour-progress">Step 1 of N</div>
+        <div class="tour-actions">
+          <button class="btn btn-secondary" id="tour-skip">Skip</button>
+          <button class="btn btn-secondary" id="tour-back">Back</button>
+          <button class="btn" id="tour-next">Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // RBAC client-side (mirrors backend roles)
+    // =========================================================
+    const ROLE_PERMS = {
+      staff: new Set(["view_live", "view_events"]),
+      quality_engineer: new Set(["view_live", "view_events", "export_events", "edit_rules", "view_audit"]),
+      software_engineer: new Set(["view_live", "view_events", "export_events", "view_devices", "view_audit", "edit_rules"]),
+      manager: new Set(["view_live", "view_events", "export_events", "edit_rules", "view_audit", "view_devices"]),
+      admin: new Set(["*"])
+    };
+
+    function hasPerm(role, perm) {
+      const s = ROLE_PERMS[role] || new Set();
+      return s.has("*") || s.has(perm);
+    }
+
+    // =========================================================
+    // DOM
+    // =========================================================
+    const statusText = document.getElementById('status-text');
+    const footerHost = document.getElementById('footer-host');
+    const pillUser = document.getElementById('pill-user');
+
+    const navEl = document.getElementById('nav');
+    const navLive = document.getElementById('nav-live');
+    const navEvents = document.getElementById('nav-events');
+    const navQuality = document.getElementById('nav-quality');
+    const navAudit = document.getElementById('nav-audit');
+    const navDevices = document.getElementById('nav-devices');
+
+    const btnLogout = document.getElementById('btn-logout');
+
+    const btnToggleControls = document.getElementById('btn-toggle-controls');
+    const controlsBackdrop = document.getElementById('controls-backdrop');
+    const controlsPanel = document.getElementById('controls-panel');
+    const btnCloseControls = document.getElementById('btn-close-controls');
+    const btnCancelControls = document.getElementById('btn-cancel-controls');
+    const btnSaveConfig = document.getElementById('btn-save-config');
+    const controlsPermHint = document.getElementById('controls-perm-hint');
+
+    // Login
+    const pageLogin = document.getElementById('page-login');
+    const loginEmail = document.getElementById('login-email');
+    const loginPassword = document.getElementById('login-password');
+    const btnLogin = document.getElementById('btn-login');
+    const loginMsg = document.getElementById('login-msg');
+
+    // Pages
+    const pages = {
+      login: document.getElementById('page-login'),
+      live: document.getElementById('page-live'),
+      events: document.getElementById('page-events'),
+      quality: document.getElementById('page-quality'),
+      audit: document.getElementById('page-audit'),
+      devices: document.getElementById('page-devices')
+    };
+
+    // Live DOM
+    const panelLive  = document.getElementById('panel-live');
+    const panelStats = document.getElementById('panel-stats');
+    const panelHist  = document.getElementById('panel-hist');
+    const panelMoist = document.getElementById('panel-moist');
+
+    const videoEl = document.getElementById('video');
+
+    const statReady   = document.getElementById('stat-ready');
+    const statUnits   = document.getElementById('stat-units');
+    const statMean    = document.getElementById('stat-mean');
+    const statMedian  = document.getElementById('stat-median');
+    const statStd     = document.getElementById('stat-std');
+    const statMin     = document.getElementById('stat-min');
+    const statMax     = document.getElementById('stat-max');
+    const statBatch   = document.getElementById('stat-batch');
+    const statScale   = document.getElementById('stat-scale');
+    const statAlarm   = document.getElementById('stat-alarm');
+
+    const canvasDiam   = document.getElementById('hist-diam');
+    const histTitle    = document.getElementById('hist-title');
+    const histOverInfo = document.getElementById('hist-over-info');
+
+    const moistStatus  = document.getElementById('moist-status');
+    const moistPred    = document.getElementById('moist-pred');
+    const moistTopk    = document.getElementById('moist-topk');
+    const moistUsed    = document.getElementById('moist-used');
+    const moistTs      = document.getElementById('moist-ts');
+    const moistProbs   = document.getElementById('moist-probs');
+    const moistClasses = document.getElementById('moist-classes');
+
+    // Controls inputs
+    const inputThemeLight     = document.getElementById('input-theme-light');
+    const inputAlarmThreshold = document.getElementById('input-alarm-threshold');
+    const inputAlarmEnabled   = document.getElementById('input-alarm-enabled');
+    const inputRefSize        = document.getElementById('input-ref-size');
+    const inputConfThr        = document.getElementById('input-conf-thr');
+    const inputNmsIou         = document.getElementById('input-nms-iou');
+    const inputMoistEnabled   = document.getElementById('input-moist-enabled');
+    const inputMoistTopk      = document.getElementById('input-moist-topk');
+    const inputMoistEvery     = document.getElementById('input-moist-every');
+
+    // Events DOM
+    const eventsStart = document.getElementById('events-start');
+    const eventsEnd = document.getElementById('events-end');
+    const eventsAlarmOnly = document.getElementById('events-alarm-only');
+    const eventsLimit = document.getElementById('events-limit');
+    const btnEventsRefresh = document.getElementById('btn-events-refresh');
+    const btnEventsExport = document.getElementById('btn-events-export');
+    const eventsMsg = document.getElementById('events-msg');
+    const eventsTbody = document.getElementById('events-tbody');
+
+    // Quality DOM
+    const qrAlarmThr = document.getElementById('qr-alarm-thr');
+    const qrRefMm = document.getElementById('qr-ref-mm');
+    const qrConf = document.getElementById('qr-conf');
+    const qrNms = document.getElementById('qr-nms');
+    const qrAlarmEnabled = document.getElementById('qr-alarm-enabled');
+    const qrMoistEnabled = document.getElementById('qr-moist-enabled');
+    const qrMoistTopk = document.getElementById('qr-moist-topk');
+    const qrMoistEvery = document.getElementById('qr-moist-every');
+    const qrReason = document.getElementById('qr-reason');
+    const btnQrRefresh = document.getElementById('btn-qr-refresh');
+    const btnQrApply = document.getElementById('btn-qr-apply');
+    const btnQrLoadVersions = document.getElementById('btn-qr-load-versions');
+    const qrMsg = document.getElementById('qr-msg');
+    const qrVersionsTbody = document.getElementById('qr-versions-tbody');
+
+    // Audit DOM
+    const auditLimit = document.getElementById('audit-limit');
+    const btnAuditRefresh = document.getElementById('btn-audit-refresh');
+    const auditMsg = document.getElementById('audit-msg');
+    const auditTbody = document.getElementById('audit-tbody');
+
+    // Devices DOM
+    const btnDevRefresh = document.getElementById('btn-dev-refresh');
+    const devMsg = document.getElementById('dev-msg');
+    const devCamera = document.getElementById('dev-camera');
+    const devLastFrame = document.getElementById('dev-last-frame');
+    const devLastDetr = document.getElementById('dev-last-detr');
+    const devFps = document.getElementById('dev-fps');
+    const devUptime = document.getElementById('dev-uptime');
+    const devAlarm = document.getElementById('dev-alarm');
+    const devError = document.getElementById('dev-error');
+
+    footerHost.textContent = window.location.host;
+
+    // =========================================================
+    // Theme
+    // =========================================================
+    const THEME_KEY = 'wcm_theme';
+    function applyTheme(theme) {
+      if (theme === 'light') document.body.classList.add('theme-light');
+      else document.body.classList.remove('theme-light');
+      inputThemeLight.checked = (theme === 'light');
+    }
+    function loadTheme() {
+      const t = localStorage.getItem(THEME_KEY) || 'dark';
+      applyTheme(t);
+    }
+    function saveThemeFromUI() {
+      const t = inputThemeLight.checked ? 'light' : 'dark';
+      localStorage.setItem(THEME_KEY, t);
+      applyTheme(t);
+    }
+    inputThemeLight.addEventListener('change', saveThemeFromUI);
+
+    // =========================================================
+    // Controls open/close
+    // =========================================================
+    function openControls() {
+      controlsBackdrop.classList.add('open');
+      controlsPanel.classList.add('open');
+    }
+    function closeControls() {
+      controlsBackdrop.classList.remove('open');
+      controlsPanel.classList.remove('open');
+    }
+    btnToggleControls.addEventListener('click', openControls);
+    btnCloseControls.addEventListener('click', closeControls);
+    btnCancelControls.addEventListener('click', closeControls);
+    controlsBackdrop.addEventListener('click', (e) => {
+      if (e.target === controlsBackdrop) closeControls();
+    });
+
+    // =========================================================
+    // Auth + routing
+    // =========================================================
+    let CURRENT_USER = null; // {email, role, display_name}
+
+    function setActiveNav(hash) {
+      const links = [navLive, navEvents, navQuality, navAudit, navDevices];
+      links.forEach(a => a.classList.remove('active'));
+      const m = {
+        "#/live": navLive,
+        "#/events": navEvents,
+        "#/quality": navQuality,
+        "#/audit": navAudit,
+        "#/devices": navDevices,
+      };
+      if (m[hash]) m[hash].classList.add('active');
+    }
+
+    function showPage(name) {
+      Object.values(pages).forEach(p => p.classList.remove('active'));
+      if (pages[name]) pages[name].classList.add('active');
+    }
+
+    async function apiFetch(url, opts = {}) {
+      const o = Object.assign(
+        { cache: 'no-store', credentials: 'include' },
+        opts
+      );
+      return fetch(url, o);
+    }
+
+    async function checkSession() {
+      try {
+        const res = await apiFetch('/api/auth/me');
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && data.ok) return data.user;
+        return null;
+      } catch {
+        return null;
+      }
+    }
+
+    function applyRoleUI(user) {
+      const role = user.role || "staff";
+
+      pillUser.style.display = "inline-block";
+      pillUser.textContent = `${user.email} • ${role}`;
+
+      navEl.style.display = "flex";
+      btnToggleControls.style.display = hasPerm(role, "view_live") ? "inline-flex" : "none";
+
+      navQuality.style.display = hasPerm(role, "edit_rules") ? "inline-flex" : "none";
+      navAudit.style.display = hasPerm(role, "view_audit") ? "inline-flex" : "none";
+      navDevices.style.display = hasPerm(role, "view_devices") ? "inline-flex" : "none";
+
+      // Enable export button on events page
+      btnEventsExport.disabled = !hasPerm(role, "export_events");
+
+      // Enable quality apply
+      btnQrApply.disabled = !hasPerm(role, "edit_rules");
+
+      // Controls apply
+      btnSaveConfig.disabled = !hasPerm(role, "edit_rules");
+      controlsPermHint.textContent = hasPerm(role, "edit_rules")
+        ? "You can apply changes (versioned via Quality Rules)."
+        : "Read-only: you don’t have permission to apply changes.";
+      controlsPermHint.className = "hint " + (hasPerm(role, "edit_rules") ? "ok" : "err");
+    }
+
+    async function route() {
+      const hash = window.location.hash || "#/live";
+      if (!CURRENT_USER) {
+        showPage("login");
+        navEl.style.display = "none";
+        btnToggleControls.style.display = "none";
+        pillUser.style.display = "none";
+        return;
+      }
+
+      // default route
+      const role = CURRENT_USER.role || "staff";
+      const allowed = {
+        "#/live": hasPerm(role, "view_live"),
+        "#/events": hasPerm(role, "view_events"),
+        "#/quality": hasPerm(role, "edit_rules"),
+        "#/audit": hasPerm(role, "view_audit"),
+        "#/devices": hasPerm(role, "view_devices"),
+      };
+
+      let target = hash;
+      if (!allowed[target]) {
+        target = hasPerm(role, "view_live") ? "#/live" : "#/events";
+      }
+
+      setActiveNav(target);
+      if (target === "#/live") showPage("live");
+      if (target === "#/events") showPage("events");
+      if (target === "#/quality") showPage("quality");
+      if (target === "#/audit") showPage("audit");
+      if (target === "#/devices") showPage("devices");
+    }
+
+    window.addEventListener("hashchange", route);
+
+    // =========================================================
+    // Login / Logout
+    // =========================================================
+    async function doLogin() {
+      loginMsg.textContent = "";
+      const email = (loginEmail.value || "").trim();
+      const password = loginPassword.value || "";
+      if (!email || !password) {
+        loginMsg.textContent = "Enter email + password.";
+        return;
+      }
+      btnLogin.disabled = true;
+      try {
+        const res = await apiFetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) {
+          const t = await res.text();
+          loginMsg.textContent = "Login failed: " + t;
+          btnLogin.disabled = false;
+          return;
+        }
+        const data = await res.json();
+        CURRENT_USER = data.user;
+        applyRoleUI(CURRENT_USER);
+
+        // after login: go live
+        window.location.hash = "#/live";
+        await loadRuntimeRulesIntoControls(); // load for the sidebar
+        await loadQualityCurrent(); // sync quality page inputs
+        await route();
+      } catch (e) {
+        loginMsg.textContent = "Login error: " + e;
+      } finally {
+        btnLogin.disabled = false;
+      }
+    }
+
+    btnLogin.addEventListener("click", doLogin);
+    loginPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+
+    btnLogout.addEventListener("click", async () => {
+      try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch {}
+      CURRENT_USER = null;
+      closeControls();
+      window.location.hash = "#/login";
+      await route();
+    });
+
+    // =========================================================
+    // Backend status + polling (Live)
+    // =========================================================
+    function updateImage() {
+      if (!CURRENT_USER) return;
+      if (!(window.location.hash === "#/live" || window.location.hash === "")) return;
+      videoEl.src = '/api/frame?ts=' + Date.now();
+    }
+
+    async function updateStats() {
+      if (!CURRENT_USER) return;
+      try {
+        const res = await apiFetch('/api/stats');
+        if (!res.ok) {
+          statusText.textContent = 'Backend: error ' + res.status;
+          statusText.style.color = '#ff6b6b';
+          return;
+        }
+        const data = await res.json();
+        statusText.textContent = 'Backend: connected';
+        statusText.style.color = '#8ae68a';
+
+        if (!data.ready) {
+          statReady.innerHTML = '<span class="stat-label">Status:</span> <span class="stat-value stat-warning">Collecting…</span>';
+          statUnits.textContent = statMean.textContent = statMedian.textContent = statStd.textContent = '';
+          statMin.textContent = statMax.textContent = statBatch.textContent = statScale.textContent = statAlarm.textContent = '';
+          return;
+        }
+
+        const units = data.units || '';
+        statReady.innerHTML = '<span class="stat-label">Status:</span> <span class="stat-value">OK</span>';
+        statUnits.innerHTML = '<span class="stat-label">Units:</span> <span class="stat-value">' + units + '</span>';
+
+        // prefer *_d keys used by your backend stats
+        const mean = (data.mean_d != null) ? data.mean_d : data.mean;
+        const med  = (data.median_d != null) ? data.median_d : data.median;
+        const std  = (data.std_d != null) ? data.std_d : data.std;
+        const minv = (data.min_d != null) ? data.min_d : data.min;
+        const maxv = (data.max_d != null) ? data.max_d : data.max;
+
+        statMean.innerHTML = '<span class="stat-label">Mean:</span> <span class="stat-value">' + Number(mean).toFixed(1) + ' ' + units + '</span>';
+        statMedian.innerHTML = '<span class="stat-label">Median:</span> <span class="stat-value">' + Number(med).toFixed(1) + ' ' + units + '</span>';
+        statStd.innerHTML = '<span class="stat-label">Std:</span> <span class="stat-value">' + Number(std).toFixed(1) + ' ' + units + '</span>';
+        statMin.innerHTML = '<span class="stat-label">Min:</span> <span class="stat-value">' + Number(minv).toFixed(1) + ' ' + units + '</span>';
+        statMax.innerHTML = '<span class="stat-label">Max:</span> <span class="stat-value">' + Number(maxv).toFixed(1) + ' ' + units + '</span>';
+
+        if (data.batch_label) {
+          statBatch.innerHTML = '<span class="stat-label">Batch:</span> <span class="stat-value">' + data.batch_label + '</span>';
+        } else statBatch.textContent = '';
+
+        if (data.px_per_mm_mean != null) {
+          const meanPx = data.px_per_mm_mean;
+          const stdPx = data.px_per_mm_std || 0.0;
+          statScale.innerHTML = '<span class="stat-label">px/mm:</span> <span class="stat-value">' + meanPx.toFixed(1) + ' +/- ' + stdPx.toFixed(1) + '</span>';
+        } else statScale.textContent = '';
+
+        if (data.alarm_active) {
+          const thr = (data.alarm_threshold_mm != null) ? data.alarm_threshold_mm : 0;
+          const maxD = data.alarm_max_d_mm;
+          const maxTxt = (maxD != null) ? Number(maxD).toFixed(1) : '?';
+          statAlarm.innerHTML = '<span class="stat-label">Alarm:</span> <span class="stat-value stat-error">OVERSIZE &gt; ' +
+            Number(thr).toFixed(1) + ' mm (max ' + maxTxt + ')</span>';
+        } else if (data.alarm_threshold_mm != null) {
+          const thr = data.alarm_threshold_mm;
+          statAlarm.innerHTML = '<span class="stat-label">Alarm:</span> <span class="stat-value">OK (≤ ' + Number(thr).toFixed(1) + ' mm)</span>';
+        } else statAlarm.textContent = '';
+
+      } catch (err) {
+        statusText.textContent = 'Backend: connection error';
+        statusText.style.color = '#ff6b6b';
+        statReady.innerHTML = '<span class="stat-label">Status:</span> <span class="stat-value stat-error">Error</span>';
+      }
+    }
+
+    function clearHistogram(canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-panel-2').trim() || '#101010';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function renderHistogram(canvas, histObj, opts = {}) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      const bg = getComputedStyle(document.body).getPropertyValue('--bg-panel-2').trim() || '#101010';
+      const border = getComputedStyle(document.body).getPropertyValue('--border').trim() || '#333';
+      const label = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
+
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      if (!histObj || !histObj.bins || !histObj.counts || histObj.counts.length === 0) return;
+
+      const bins = histObj.bins;
+      const counts = histObj.counts;
+      const n = counts.length;
+      const maxCount = Math.max(...counts, 1);
+
+      const marginLeft = 30, marginRight = 10, marginTop = 14, marginBottom = 26;
+      const plotW = w - marginLeft - marginRight;
+      const plotH = h - marginTop - marginBottom;
+
+      ctx.strokeStyle = border;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(marginLeft, marginTop);
+      ctx.lineTo(marginLeft, marginTop + plotH);
+      ctx.lineTo(marginLeft + plotW, marginTop + plotH);
+      ctx.stroke();
+
+      const barW = plotW / n;
+      const accent = getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#4da6ff';
+      for (let i = 0; i < n; i++) {
+        const ratio = counts[i] / maxCount;
+        const barH = ratio * (plotH - 2);
+        const x = marginLeft + i * barW;
+        const y = marginTop + plotH - barH;
+        ctx.fillStyle = accent;
+        ctx.fillRect(x + 1, y, barW - 2, barH);
+      }
+
+      ctx.fillStyle = label;
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      const numTicks = 4;
+      for (let t = 0; t <= numTicks; t++) {
+        const idx = Math.round((t / numTicks) * (n - 1));
+        const x = marginLeft + (idx + 0.5) * barW;
+        ctx.fillText(Number(bins[idx]).toFixed(0), x, h - 8);
+      }
+
+      const thresholdX = (opts.thresholdX != null) ? Number(opts.thresholdX) : null;
+      const pctOver = (opts.pctOver != null) ? Number(opts.pctOver) : null;
+      const units = opts.units || '';
+
+      if (thresholdX != null && Number.isFinite(thresholdX)) {
+        const minX = Number(bins[0]);
+        const maxX = Number(bins[n - 1]);
+        const denom = (maxX - minX);
+        if (Number.isFinite(minX) && Number.isFinite(maxX) && Math.abs(denom) > 1e-9) {
+          let r = (thresholdX - minX) / denom;
+          r = Math.max(0, Math.min(1, r));
+          const xLine = marginLeft + r * plotW;
+
+          ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--error').trim() || '#ff6b6b';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(xLine, marginTop);
+          ctx.lineTo(xLine, marginTop + plotH);
+          ctx.stroke();
+
+          const thrLabelVal = (opts.thrLabelVal != null) ? Number(opts.thrLabelVal) : thresholdX;
+          const thrText = Number.isFinite(thrLabelVal)
+            ? ('Thr ' + thrLabelVal.toFixed(0) + (units ? (' ' + units) : ''))
+            : 'Thr';
+          const overText = (pctOver != null && Number.isFinite(pctOver)) ? ('Over ' + pctOver.toFixed(1) + '%') : '';
+          const labelTxt = overText ? (thrText + ' | ' + overText) : thrText;
+
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--error').trim() || '#ff6b6b';
+          ctx.font = 'bold 14px sans-serif';
+          const pad = 6;
+          const placeRight = (xLine + 120 < marginLeft + plotW);
+          ctx.textAlign = placeRight ? 'left' : 'right';
+          ctx.fillText(labelTxt, placeRight ? (xLine + pad) : (xLine - pad), marginTop + 12);
+        }
+      }
+    }
+
+    async function updateHist() {
+      if (!CURRENT_USER) return;
+      try {
+        const res = await apiFetch('/api/hist');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (!data.ready) {
+          clearHistogram(canvasDiam);
+          histOverInfo.textContent = '';
+          return;
+        }
+
+        const histObj = data.diameter;
+        histTitle.textContent = 'Diameter Distribution';
+
+        if (!histObj || !histObj.bins || !histObj.counts) {
+          clearHistogram(canvasDiam);
+          histOverInfo.textContent = '';
+          return;
+        }
+
+        if (data.pct_over_threshold != null) {
+          const u = data.units || '';
+          if (u === 'mm' && data.alarm_threshold_mm != null) {
+            histOverInfo.textContent = 'Oversize (> ' + Number(data.alarm_threshold_mm).toFixed(0) + ' mm): ' +
+              Number(data.pct_over_threshold).toFixed(1) + '%';
+          } else if (data.threshold_x != null) {
+            histOverInfo.textContent = 'Oversize (> ' + Number(data.threshold_x).toFixed(0) + (u ? (' ' + u) : '') + '): ' +
+              Number(data.pct_over_threshold).toFixed(1) + '%';
+          } else {
+            histOverInfo.textContent = 'Oversize: ' + Number(data.pct_over_threshold).toFixed(1) + '%';
+          }
+        } else {
+          histOverInfo.textContent = '';
+        }
+
+        renderHistogram(canvasDiam, histObj, {
+          thresholdX: data.threshold_x,
+          pctOver: data.pct_over_threshold,
+          units: data.units || '',
+          thrLabelVal: (data.units === 'mm' && data.alarm_threshold_mm != null) ? data.alarm_threshold_mm : data.threshold_x
+        });
+      } catch {}
+    }
+
+    function setMoistBadge(kind, text) {
+      if (kind === 'ok') moistStatus.innerHTML = '<span class="badge badge-ok">' + text + '</span>';
+      else if (kind === 'err') moistStatus.innerHTML = '<span class="badge badge-err">' + text + '</span>';
+      else moistStatus.innerHTML = '<span class="badge badge-warn">' + text + '</span>';
+    }
+
+    function renderMoistureProbs(classes, meanProbs) {
+      moistProbs.innerHTML = '';
+      if (!classes || classes.length === 0 || !meanProbs) return;
+      for (const cls of classes) {
+        const p = (meanProbs[cls] != null) ? meanProbs[cls] : 0;
+        const row = document.createElement('div');
+        row.className = 'prob-row';
+
+        const left = document.createElement('div');
+        left.textContent = cls;
+
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        const fill = document.createElement('div');
+        fill.style.width = Math.max(0, Math.min(100, p * 100)).toFixed(0) + '%';
+        bar.appendChild(fill);
+
+        const right = document.createElement('div');
+        right.textContent = (p * 100).toFixed(0) + '%';
+
+        row.appendChild(left);
+        row.appendChild(bar);
+        row.appendChild(right);
+        moistProbs.appendChild(row);
+      }
+    }
+
+    async function updateMoisture() {
+      if (!CURRENT_USER) return;
+      try {
+        const res = await apiFetch('/api/moisture');
+        if (!res.ok) {
+          setMoistBadge('err', 'Error ' + res.status);
+          return;
+        }
+        const data = await res.json();
+
+        if (!data.ready) {
+          setMoistBadge('warn', 'Collecting…');
+          moistPred.textContent = '—';
+          moistTopk.textContent = '—';
+          moistUsed.textContent = '—';
+          moistTs.textContent = '—';
+          moistProbs.innerHTML = '';
+          moistClasses.textContent = 'Classes: —';
+          return;
+        }
+
+        setMoistBadge('ok', 'OK');
+        const classes = data.classes || [];
+        const meanPred = data.mean_pred || '—';
+        const meanProbs = data.mean_probs || null;
+
+        moistPred.textContent = meanPred;
+        moistTopk.textContent = (data.topk != null) ? String(data.topk) : '—';
+
+        const used = (data.boxes_used != null) ? data.boxes_used : ((data.per_box && Array.isArray(data.per_box)) ? data.per_box.length : 0);
+        moistUsed.textContent = String(used);
+
+        if (data.timestamp != null) {
+          const dt = new Date(data.timestamp * 1000);
+          moistTs.textContent = dt.toLocaleString();
+        } else moistTs.textContent = '—';
+
+        moistClasses.textContent = (classes.length > 0) ? ('Classes: ' + classes.join(', ')) : 'Classes: —';
+        renderMoistureProbs(classes, meanProbs);
+
+      } catch {
+        setMoistBadge('err', 'Connection error');
+      }
+    }
+
+    // =========================================================
+    // Rules -> Controls panel (read via /api/rules/current)
+    // =========================================================
+    async function loadRuntimeRulesIntoControls() {
+      if (!CURRENT_USER) return;
+      try {
+        const res = await apiFetch('/api/rules/current');
+        if (!res.ok) return;
+        const data = await res.json();
+        const cfg = data.rules || {};
+
+        if (cfg.alarm_threshold_mm != null) inputAlarmThreshold.value = Number(cfg.alarm_threshold_mm).toFixed(1);
+        inputAlarmEnabled.checked = !!cfg.alarm_enabled;
+
+        if (cfg.conf_thr != null) inputConfThr.value = Number(cfg.conf_thr).toFixed(2);
+        if (cfg.nms_iou != null) inputNmsIou.value = Number(cfg.nms_iou).toFixed(2);
+
+        if (cfg.ref_diam_mm != null) inputRefSize.value = Number(cfg.ref_diam_mm).toFixed(1);
+
+        if (cfg.moisture_enabled != null) inputMoistEnabled.checked = !!cfg.moisture_enabled;
+        if (cfg.moisture_topk != null) inputMoistTopk.value = parseInt(cfg.moisture_topk, 10);
+        if (cfg.moisture_every_n_frames != null) inputMoistEvery.value = parseInt(cfg.moisture_every_n_frames, 10);
+      } catch {}
+    }
+
+    async function saveConfigFromSidebar() {
+      if (!CURRENT_USER) return;
+      const role = CURRENT_USER.role || "staff";
+      if (!hasPerm(role, "edit_rules")) {
+        controlsPermHint.textContent = "Not allowed: your role cannot apply changes.";
+        controlsPermHint.className = "hint err";
+        return;
+      }
+
+      const rules = {
+        alarm_threshold_mm: parseFloat(inputAlarmThreshold.value),
+        alarm_enabled: inputAlarmEnabled.checked,
+        conf_thr: parseFloat(inputConfThr.value),
+        nms_iou: parseFloat(inputNmsIou.value),
+        moisture_enabled: inputMoistEnabled.checked,
+        moisture_topk: parseInt(inputMoistTopk.value, 10),
+        moisture_every_n_frames: parseInt(inputMoistEvery.value, 10),
+      };
+
+      const refVal = parseFloat(inputRefSize.value);
+      if (!Number.isNaN(refVal)) rules.ref_diam_mm = refVal;
+
+      try {
+        const res = await apiFetch('/api/rules/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rules, reason: "sidebar_controls_apply" }),
+        });
+        if (!res.ok) {
+          controlsPermHint.textContent = "Apply failed: " + (await res.text());
+          controlsPermHint.className = "hint err";
+          return;
+        }
+        controlsPermHint.textContent = "Applied (new version created).";
+        controlsPermHint.className = "hint ok";
+      } catch (err) {
+        controlsPermHint.textContent = "Apply error: " + err;
+        controlsPermHint.className = "hint err";
+      }
+      // keep panel open
+    }
+
+    btnSaveConfig.addEventListener('click', saveConfigFromSidebar);
+
+    // =========================================================
+    // Events page
+    // =========================================================
+    function parseLocalToEpoch(s) {
+      // Accept "YYYY-MM-DD HH:MM" in local time
+      const t = (s || "").trim();
+      if (!t) return null;
+      const m = t.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})$/);
+      if (!m) return null;
+      const [_, yy, mm, dd, hh, mi] = m;
+      const dt = new Date(Number(yy), Number(mm) - 1, Number(dd), Number(hh), Number(mi), 0);
+      return Math.floor(dt.getTime() / 1000);
+    }
+
+    function fmtNum(x, digits=1) {
+      if (x == null || x === "") return "—";
+      const v = Number(x);
+      if (!Number.isFinite(v)) return "—";
+      return v.toFixed(digits);
+    }
+
+    async function loadEvents() {
+      if (!CURRENT_USER) return;
+
+      eventsMsg.textContent = "";
+      eventsTbody.innerHTML = "";
+
+      const startEpoch = parseLocalToEpoch(eventsStart.value);
+      const endEpoch = parseLocalToEpoch(eventsEnd.value);
+      const alarmOnly = !!eventsAlarmOnly.checked;
+      const limit = parseInt(eventsLimit.value || "200", 10);
+
+      const qs = new URLSearchParams();
+      if (startEpoch != null) qs.set("start_epoch", String(startEpoch));
+      if (endEpoch != null) qs.set("end_epoch", String(endEpoch));
+      if (alarmOnly) qs.set("alarm_only", "true");
+      if (Number.isFinite(limit)) qs.set("limit", String(limit));
+
+      try {
+        const res = await apiFetch('/api/events?' + qs.toString());
+        if (!res.ok) {
+          eventsMsg.textContent = "Failed: " + (await res.text());
+          eventsMsg.className = "hint err";
+          return;
+        }
+        const data = await res.json();
+        const rows = data.events || [];
+
+        eventsMsg.textContent = `Loaded ${rows.length} events.`;
+        eventsMsg.className = "hint ok";
+
+        for (const e of rows) {
+          const tr = document.createElement("tr");
+
+          const dt = new Date(e.ts_epoch * 1000);
+          const tLocal = dt.toLocaleString();
+
+          const alarm = e.alarm_active
+            ? '<span class="tag red">OVERSIZE</span>'
+            : '<span class="tag green">OK</span>';
+
+          tr.innerHTML = `
+            <td>${tLocal}</td>
+            <td>${alarm}</td>
+            <td>${fmtNum(e.alarm_max_d_mm, 1)}</td>
+            <td>${fmtNum(e.mean_d, 1)}</td>
+            <td>${fmtNum(e.std_d, 1)}</td>
+            <td>${e.units || "—"}</td>
+            <td>${e.moisture_mean_pred || "—"}</td>
+            <td>${e.device_id || "—"}</td>
+          `;
+          eventsTbody.appendChild(tr);
+        }
+
+      } catch (err) {
+        eventsMsg.textContent = "Error: " + err;
+        eventsMsg.className = "hint err";
+      }
+    }
+
+    btnEventsRefresh.addEventListener("click", loadEvents);
+
+    btnEventsExport.addEventListener("click", () => {
+      if (!CURRENT_USER) return;
+      const startEpoch = parseLocalToEpoch(eventsStart.value);
+      const endEpoch = parseLocalToEpoch(eventsEnd.value);
+      const alarmOnly = !!eventsAlarmOnly.checked;
+      const limit = parseInt(eventsLimit.value || "10000", 10);
+
+      const qs = new URLSearchParams();
+      if (startEpoch != null) qs.set("start_epoch", String(startEpoch));
+      if (endEpoch != null) qs.set("end_epoch", String(endEpoch));
+      if (alarmOnly) qs.set("alarm_only", "true");
+      if (Number.isFinite(limit)) qs.set("limit", String(limit));
+
+      // cookie auth downloads fine
+      window.location.href = "/api/events/export.csv?" + qs.toString();
+    });
+
+    // =========================================================
+    // Quality Rules page
+    // =========================================================
+    async function loadQualityCurrent() {
+      if (!CURRENT_USER) return;
+      qrMsg.textContent = "";
+      try {
+        const res = await apiFetch('/api/rules/current');
+        if (!res.ok) {
+          qrMsg.textContent = "Failed: " + (await res.text());
+          qrMsg.className = "hint err";
+          return;
+        }
+        const data = await res.json();
+        const cfg = data.rules || {};
+
+        qrAlarmThr.value = (cfg.alarm_threshold_mm != null) ? Number(cfg.alarm_threshold_mm).toFixed(1) : "";
+        qrAlarmEnabled.checked = !!cfg.alarm_enabled;
+
+        qrRefMm.value = (cfg.ref_diam_mm != null) ? Number(cfg.ref_diam_mm).toFixed(1) : "";
+        qrConf.value = (cfg.conf_thr != null) ? Number(cfg.conf_thr).toFixed(2) : "";
+        qrNms.value = (cfg.nms_iou != null) ? Number(cfg.nms_iou).toFixed(2) : "";
+
+        qrMoistEnabled.checked = !!cfg.moisture_enabled;
+        qrMoistTopk.value = (cfg.moisture_topk != null) ? String(parseInt(cfg.moisture_topk, 10)) : "";
+        qrMoistEvery.value = (cfg.moisture_every_n_frames != null) ? String(parseInt(cfg.moisture_every_n_frames, 10)) : "";
+
+        const src = data.source || "runtime";
+        const v = (data.version != null) ? `v${data.version}` : "—";
+        qrMsg.textContent = `Loaded current rules (${src}, ${v}).`;
+        qrMsg.className = "hint ok";
+      } catch (err) {
+        qrMsg.textContent = "Error: " + err;
+        qrMsg.className = "hint err";
+      }
+    }
+
+    btnQrRefresh.addEventListener("click", loadQualityCurrent);
+
+    btnQrApply.addEventListener("click", async () => {
+      if (!CURRENT_USER) return;
+      const role = CURRENT_USER.role || "staff";
+      if (!hasPerm(role, "edit_rules")) return;
+
+      const rules = {
+        alarm_threshold_mm: parseFloat(qrAlarmThr.value),
+        alarm_enabled: !!qrAlarmEnabled.checked,
+        ref_diam_mm: (qrRefMm.value.trim() ? parseFloat(qrRefMm.value) : null),
+        conf_thr: (qrConf.value.trim() ? parseFloat(qrConf.value) : null),
+        nms_iou: (qrNms.value.trim() ? parseFloat(qrNms.value) : null),
+        moisture_enabled: !!qrMoistEnabled.checked,
+        moisture_topk: (qrMoistTopk.value.trim() ? parseInt(qrMoistTopk.value, 10) : null),
+        moisture_every_n_frames: (qrMoistEvery.value.trim() ? parseInt(qrMoistEvery.value, 10) : null),
+      };
+
+      // cleanup nulls
+      Object.keys(rules).forEach(k => { if (rules[k] === null || Number.isNaN(rules[k])) delete rules[k]; });
+
+      const reason = (qrReason.value || "").trim() || "ui_update";
+
+      try {
+        const res = await apiFetch('/api/rules/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rules, reason }),
+        });
+        if (!res.ok) {
+          qrMsg.textContent = "Apply failed: " + (await res.text());
+          qrMsg.className = "hint err";
+          return;
+        }
+        const data = await res.json();
+        qrMsg.textContent = `Applied new version v${data.version}.`;
+        qrMsg.className = "hint ok";
+        await loadRuntimeRulesIntoControls();
+      } catch (err) {
+        qrMsg.textContent = "Error: " + err;
+        qrMsg.className = "hint err";
+      }
+    });
+
+    async function loadRuleVersions() {
+      if (!CURRENT_USER) return;
+      qrVersionsTbody.innerHTML = "";
+      try {
+        const res = await apiFetch('/api/rules/versions?limit=80');
+        if (!res.ok) {
+          qrMsg.textContent = "Versions failed: " + (await res.text());
+          qrMsg.className = "hint err";
+          return;
+        }
+        const data = await res.json();
+        const items = data.versions || [];
+        for (const v of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>v${v.version}</td>
+            <td>${new Date(Date.parse(v.created_at)).toLocaleString()}</td>
+            <td>${v.created_by_email || "—"}</td>
+            <td>${(v.reason || "—").slice(0, 80)}</td>
+            <td>${v.applied ? '<span class="tag green">YES</span>' : '<span class="tag">no</span>'}</td>
+            <td><button class="btn btn-ghost" data-ver="${v.version}">Rollback</button></td>
+          `;
+          qrVersionsTbody.appendChild(tr);
+        }
+
+        // rollback handlers
+        qrVersionsTbody.querySelectorAll("button[data-ver]").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const ver = parseInt(btn.getAttribute("data-ver"), 10);
+            try {
+              const res2 = await apiFetch('/api/rules/rollback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ version: ver }),
+              });
+              if (!res2.ok) {
+                qrMsg.textContent = "Rollback failed: " + (await res2.text());
+                qrMsg.className = "hint err";
+                return;
+              }
+              const d2 = await res2.json();
+              qrMsg.textContent = `Rolled back to v${d2.rolled_back_to} (new applied v${d2.new_version}).`;
+              qrMsg.className = "hint ok";
+              await loadQualityCurrent();
+              await loadRuntimeRulesIntoControls();
+              await loadRuleVersions();
+            } catch (err) {
+              qrMsg.textContent = "Rollback error: " + err;
+              qrMsg.className = "hint err";
+            }
+          });
+        });
+
+        qrMsg.textContent = `Loaded ${items.length} versions.`;
+        qrMsg.className = "hint ok";
+      } catch (err) {
+        qrMsg.textContent = "Error: " + err;
+        qrMsg.className = "hint err";
+      }
+    }
+
+    btnQrLoadVersions.addEventListener("click", loadRuleVersions);
+
+    // =========================================================
+    // Audit page
+    // =========================================================
+    async function loadAudit() {
+      if (!CURRENT_USER) return;
+      auditTbody.innerHTML = "";
+      auditMsg.textContent = "";
+      const lim = parseInt(auditLimit.value || "200", 10);
+      try {
+        const res = await apiFetch('/api/audit?limit=' + encodeURIComponent(String(lim)));
+        if (!res.ok) {
+          auditMsg.textContent = "Failed: " + (await res.text());
+          auditMsg.className = "hint err";
+          return;
+        }
+        const data = await res.json();
+        const items = data.items || [];
+        for (const it of items) {
+          const tr = document.createElement("tr");
+          let details = "";
+          try { details = JSON.stringify(it.details || {}); } catch { details = ""; }
+          tr.innerHTML = `
+            <td>${new Date(Date.parse(it.ts)).toLocaleString()}</td>
+            <td>${it.user_email || "—"}</td>
+            <td>${it.action || "—"}</td>
+            <td class="mono" style="max-width:520px;">${details}</td>
+          `;
+          auditTbody.appendChild(tr);
+        }
+        auditMsg.textContent = `Loaded ${items.length} entries.`;
+        auditMsg.className = "hint ok";
+      } catch (err) {
+        auditMsg.textContent = "Error: " + err;
+        auditMsg.className = "hint err";
+      }
+    }
+
+    btnAuditRefresh.addEventListener("click", loadAudit);
+
+    // =========================================================
+    // Devices page
+    // =========================================================
+    function fmtTs(tsEpoch) {
+      if (tsEpoch == null) return "—";
+      const v = Number(tsEpoch);
+      if (!Number.isFinite(v)) return "—";
+      return new Date(v * 1000).toLocaleString();
+    }
+
+    function fmtUptime(sec) {
+      if (sec == null) return "—";
+      const s = Math.max(0, Math.floor(Number(sec)));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const r = s % 60;
+      if (h > 0) return `${h}h ${m}m ${r}s`;
+      if (m > 0) return `${m}m ${r}s`;
+      return `${r}s`;
+    }
+
+    async function loadDeviceStatus() {
+      if (!CURRENT_USER) return;
+      devMsg.textContent = "";
+      try {
+        const res = await apiFetch('/api/devices/status');
+        if (!res.ok) {
+          devMsg.textContent = "Failed: " + (await res.text());
+          devMsg.className = "hint err";
+          return;
+        }
+        const h = await res.json();
+        devCamera.textContent = h.camera_ok ? ("OK • " + (h.cam_dev || "camera")) : "OFFLINE";
+        devCamera.style.color = h.camera_ok ? "var(--success)" : "var(--error)";
+
+        devLastFrame.textContent = fmtTs(h.last_frame_ts);
+        devLastDetr.textContent = fmtTs(h.last_detr_ts);
+        devFps.textContent = (h.fps_smoothed != null) ? Number(h.fps_smoothed).toFixed(1) : "—";
+        devUptime.textContent = fmtUptime(h.uptime_sec);
+
+        if (h.alarm_active) {
+          devAlarm.textContent = "OVERSIZE";
+          devAlarm.style.color = "var(--error)";
+        } else {
+          devAlarm.textContent = "OK";
+          devAlarm.style.color = "var(--success)";
+        }
+
+        devError.textContent = h.last_error || "—";
+        devMsg.textContent = "Updated.";
+        devMsg.className = "hint ok";
+      } catch (err) {
+        devMsg.textContent = "Error: " + err;
+        devMsg.className = "hint err";
+      }
+    }
+
+    btnDevRefresh.addEventListener("click", loadDeviceStatus);
+
+    // =========================================================
+    // Tour (only on Live, once per session)
+    // =========================================================
+    const appShell = document.getElementById('app-shell');
+    const tourLayer = document.getElementById('tour-layer');
+    const tourHole = document.getElementById('tour-hole');
+    const tourHighlight = document.getElementById('tour-highlight');
+    const tourTooltip = document.getElementById('tour-tooltip');
+    const tourTitle = document.getElementById('tour-title');
+    const tourText = document.getElementById('tour-text');
+    const tourSub = document.getElementById('tour-sub');
+    const tourProgress = document.getElementById('tour-progress');
+    const btnTourSkip = document.getElementById('tour-skip');
+    const btnTourBack = document.getElementById('tour-back');
+    const btnTourNext = document.getElementById('tour-next');
+
+    function lockApp(){ appShell.classList.add('app-locked'); }
+    function unlockApp(){ appShell.classList.remove('app-locked'); }
+    function openTour(){ tourLayer.classList.add('open'); lockApp(); }
+    function closeTour(){ tourLayer.classList.remove('open'); unlockApp(); }
+
+    function rectWithPadding(el, pad=10) {
+      const r = el.getBoundingClientRect();
+      return {
+        left: Math.max(6, r.left - pad),
+        top: Math.max(6, r.top - pad),
+        width: Math.min(window.innerWidth - 12, r.width + pad*2),
+        height: Math.min(window.innerHeight - 12, r.height + pad*2),
+      };
+    }
+
+    function placeSpotlight(el) {
+      const rr = rectWithPadding(el, 10);
+      tourHole.style.left = rr.left + 'px';
+      tourHole.style.top = rr.top + 'px';
+      tourHole.style.width = rr.width + 'px';
+      tourHole.style.height = rr.height + 'px';
+
+      tourHighlight.style.left = rr.left + 'px';
+      tourHighlight.style.top = rr.top + 'px';
+      tourHighlight.style.width = rr.width + 'px';
+      tourHighlight.style.height = rr.height + 'px';
+
+      const tooltipW = Math.min(420, Math.floor(window.innerWidth * 0.92));
+      tourTooltip.style.width = tooltipW + 'px';
+
+      const rightSpace = window.innerWidth - (rr.left + rr.width);
+      const leftSpace = rr.left;
+      const belowSpace = window.innerHeight - (rr.top + rr.height);
+
+      let x = 12, y = 12;
+      if (rightSpace > tooltipW + 18) {
+        x = rr.left + rr.width + 12;
+        y = Math.max(12, Math.min(rr.top, window.innerHeight - 12 - tourTooltip.offsetHeight));
+      } else if (leftSpace > tooltipW + 18) {
+        x = rr.left - tooltipW - 12;
+        y = Math.max(12, Math.min(rr.top, window.innerHeight - 12 - tourTooltip.offsetHeight));
+      } else if (belowSpace > 140) {
+        x = Math.max(12, Math.min(rr.left, window.innerWidth - 12 - tooltipW));
+        y = rr.top + rr.height + 12;
+      } else {
+        x = Math.max(12, Math.min(rr.left, window.innerWidth - 12 - tooltipW));
+        y = Math.max(12, rr.top - 12 - tourTooltip.offsetHeight);
+      }
+      tourTooltip.style.left = x + 'px';
+      tourTooltip.style.top = y + 'px';
+    }
+
+    const tourSteps = [
+      // ===== LIVE page (what you see all the time) =====
+      { before: async()=>{ window.location.hash = "#/live"; await route(); await new Promise(r=>setTimeout(r,120)); }, target: navEl, title: 'Navigation', text: 'Use these tabs to switch between Live, Events, Quality Rules, Audit, and Devices.', sub: 'Tabs may vary based on your role permissions.' },
+      { target: navLive,   title: 'Live Tab',   text: 'Live camera feed + overlay is here.', sub: 'This is the default monitoring view.' },
+      { target: panelLive,  title: 'Live View', text: 'Detector overlay + reference disk. Oversize chips are highlighted.', sub: 'Use Filters/Controls to tune thresholds.' },
+      { target: panelStats, title: 'Statistics', text: 'Rolling diameter stats and alarm status.', sub: 'Useful for operators during a shift.' },
+      { target: panelHist,  title: 'Histogram', text: 'Distribution of diameters with the threshold marker.', sub: 'The oversize percentage is shown above the chart.' },
+      { target: panelMoist, title: 'Moisture', text: 'Moisture model runs on top-K chip crops.', sub: 'Enable/disable from Controls.' },
+
+      // ===== Controls (slide-in) =====
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: btnToggleControls, title:'Filters / Controls', text:'Open this panel to adjust thresholds and model settings.', sub:'Some settings may be read-only depending on your role.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-theme'), title:'Day/Night Mode', text:'Switch between light and dark themes.', sub:'Saved locally on this device.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-alarm-thr'), title:'Alarm Threshold', text:'Set the oversize cutoff in mm.', sub:'This drives the red marker in the histogram.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-alarm-enable'), title:'Enable Oversize Alarm', text:'Turn oversize highlighting on/off.', sub:'When enabled, oversize chips are emphasized in the live view.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-ref'), title:'Reference Disk', text:'Optional: enter the real disk diameter for calibration.', sub:'Helps convert pixels to mm consistently.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-conf'), title:'Confidence Threshold', text:'Filter out low-confidence detections.', sub:'Higher values = fewer boxes, lower values = more boxes.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-nms'), title:'NMS IoU', text:'Controls how overlapping boxes are merged.', sub:'Lower values suppress overlaps more aggressively.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-moist-enable'), title:'Moisture Inference', text:'Enable/disable the moisture model.', sub:'Runs on cropped chips from detections.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-moist-topk'), title:'Moisture Top‑K', text:'How many chip crops to send to the moisture model.', sub:'Top‑K is based on detector confidence.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: document.getElementById('group-moist-every'), title:'Moisture Every N', text:'Run moisture every N processed frames.', sub:'Higher N reduces compute load.' },
+      { before: async()=>{ openControls(); await new Promise(r=>setTimeout(r,180)); }, target: btnSaveConfig, title:'Apply', text:'Apply sends your control settings to the backend.', sub:'If you are read‑only, ask your admin for edit access.' },
+
+      // ===== EVENTS page =====
+      { before: async()=>{ window.location.hash = "#/events"; await route(); await new Promise(r=>setTimeout(r,140)); }, target: navEvents, title:'Events Tab', text:'Browse historical telemetry snapshots.', sub:'Use filters and export for reporting.' },
+      { before: async()=>{ window.location.hash = "#/events"; await route(); await new Promise(r=>setTimeout(r,140)); }, target: document.getElementById('btn-events-refresh'), title:'Refresh Events', text:'Load the latest events based on the time range and filters.', sub:'Tip: “Oversize only” shows alarm events.' },
+      { before: async()=>{ window.location.hash = "#/events"; await route(); await new Promise(r=>setTimeout(r,140)); }, target: document.getElementById('btn-events-export'), title:'Export CSV', text:'Download events to CSV (if your role allows exports).', sub:'Great for QA audits and daily reports.' },
+
+      // ===== QUALITY RULES page =====
+      { before: async()=>{ window.location.hash = "#/quality"; await route(); await new Promise(r=>setTimeout(r,160)); }, target: navQuality, title:'Quality Rules Tab', text:'Versioned configuration for thresholds and detector settings.', sub:'Shown only if you have permission.' },
+      { before: async()=>{ window.location.hash = "#/quality"; await route(); await new Promise(r=>setTimeout(r,160)); }, target: document.getElementById('btn-qr-apply'), title:'Apply New Version', text:'Creates a new version with your changes (with reason).', sub:'All changes are recorded in the Audit log.' },
+      { before: async()=>{ window.location.hash = "#/quality"; await route(); await new Promise(r=>setTimeout(r,160)); }, target: document.getElementById('btn-qr-load-versions'), title:'Versions', text:'View prior versions and rollback by re‑applying a version.', sub:'Rollback is saved as a new applied version.' },
+
+      // ===== AUDIT page =====
+      { before: async()=>{ window.location.hash = "#/audit"; await route(); await new Promise(r=>setTimeout(r,160)); }, target: navAudit, title:'Audit Tab', text:'See who did what and when (logins, exports, rules, errors).', sub:'Shown only if you have permission.' },
+      { before: async()=>{ window.location.hash = "#/audit"; await route(); await new Promise(r=>setTimeout(r,160)); }, target: document.getElementById('btn-audit-refresh'), title:'Refresh Audit', text:'Reload the latest audit entries.', sub:'Use this to confirm changes were recorded.' },
+
+      // ===== DEVICES page =====
+      { before: async()=>{ window.location.hash = "#/devices"; await route(); await new Promise(r=>setTimeout(r,160)); }, target: navDevices, title:'Devices Tab', text:'Health of the camera and inference loop.', sub:'Useful for debugging onsite.' },
+      { before: async()=>{ window.location.hash = "#/devices"; await route(); await new Promise(r=>setTimeout(r,160)); }, target: document.getElementById('btn-dev-refresh'), title:'Refresh Device Health', text:'Pull the latest device status from the backend.', sub:'Shows camera status, FPS, uptime, and last error.' },
+    ];
+
+    let tourIndex = 0;
+    const TOUR_SESSION_KEY = "wcm_tour_seen";
+
+    
+    function _isInControls(el){
+      if (!el) return false;
+      try {
+        if (el === controlsBackdrop || el === controlsPanel) return true;
+        if (el === btnToggleControls || el === btnCloseControls || el === btnCancelControls || el === btnSaveConfig) return true;
+        return controlsPanel && controlsPanel.contains(el);
+      } catch (e) {
+        return false;
+      }
+    }
+
+function _isVisible(el) {
+      // offsetParent is null when display:none (most reliable for our DOM)
+      return !!(el && (el.offsetParent !== null || el === document.body));
+    }
+
+    async function runStep(index) {
+      // Skip steps that are not visible/available (permissions can hide tabs)
+      const dir = (index >= tourIndex) ? 1 : -1;
+      let i = Math.max(0, Math.min(tourSteps.length - 1, index));
+
+      while (i >= 0 && i < tourSteps.length) {
+        const cand = tourSteps[i];
+        const el = cand ? cand.target : null;
+
+        // If there's a before(), run it once to make target appear (e.g., open controls / route pages)
+        if (cand && cand.before) { try { await cand.before(); } catch {} }
+
+        // If the Controls panel is still open but the next step is NOT inside it,
+        // close it so highlights/tooltips don't end up behind the panel.
+        const _tgt = cand ? cand.target : null;
+        if (controlsBackdrop && controlsBackdrop.classList.contains('open') && !_isInControls(_tgt)) {
+          closeControls();
+          await new Promise(r=>setTimeout(r,80));
+        }
+
+        const el2 = cand ? cand.target : null;
+        if (!el2 || _isVisible(el2)) { break; }
+        i += dir;
+      }
+
+      tourIndex = Math.max(0, Math.min(tourSteps.length - 1, i));
+      const s = tourSteps[tourIndex];
+      const el = s.target;
+
+      tourTitle.textContent = s.title || '';
+      tourText.textContent = s.text || '';
+      tourSub.textContent = s.sub || '';
+      tourProgress.textContent = `Step ${tourIndex + 1} of ${tourSteps.length}`;
+      btnTourBack.disabled = (tourIndex === 0);
+      btnTourNext.textContent = (tourIndex === tourSteps.length - 1) ? 'Finish' : 'Next';
+      requestAnimationFrame(() => { if (el) placeSpotlight(el); });
+    }
+
+    function startTourOncePerSession() {
+      const seen = sessionStorage.getItem(TOUR_SESSION_KEY);
+      if (seen) return;
+      sessionStorage.setItem(TOUR_SESSION_KEY, "1");
+      openTour();
+      runStep(0);
+    }
+
+    btnTourSkip.addEventListener('click', () => { closeTour(); });
+    btnTourBack.addEventListener('click', async () => { await runStep(tourIndex - 1); });
+    btnTourNext.addEventListener('click', async () => {
+      if (tourIndex === tourSteps.length - 1) { closeTour(); openControls(); return; }
+      await runStep(tourIndex + 1);
+    });
+
+    window.addEventListener('resize', () => {
+      if (!tourLayer.classList.contains('open')) return;
+      const s = tourSteps[tourIndex];
+      if (s && s.target) placeSpotlight(s.target);
+    });
+
+    // =========================================================
+    // Startup
+    // =========================================================
+    async function startup() {
+      loadTheme();
+
+      // Check session
+      statusText.textContent = "Backend: connecting…";
+      CURRENT_USER = await checkSession();
+      if (CURRENT_USER) {
+        applyRoleUI(CURRENT_USER);
+
+        // default hash
+        if (!window.location.hash || window.location.hash === "#/login") {
+          window.location.hash = "#/live";
+        }
+
+        await loadRuntimeRulesIntoControls();
+        await loadQualityCurrent();
+        await route();
+
+        // start tour after route to live
+        startTourOncePerSession();
+      } else {
+        window.location.hash = "#/login";
+        await route();
+      }
+
+      // Polling loops
+      setInterval(updateImage, 200);
+      setInterval(updateStats, 1000);
+      setInterval(updateMoisture, 1200);
+      setInterval(updateHist, 3000);
+
+      // Page refresh hooks
+      btnEventsRefresh.addEventListener("click", loadEvents);
+      btnAuditRefresh.addEventListener("click", loadAudit);
+      btnDevRefresh.addEventListener("click", loadDeviceStatus);
+
+      // Auto-load when switching pages
+      window.addEventListener("hashchange", () => {
+        const h = window.location.hash || "#/live";
+        if (h === "#/events") loadEvents();
+        if (h === "#/audit") loadAudit();
+        if (h === "#/devices") loadDeviceStatus();
+      });
+    }
+
+    startup();
+  </script>
+</body>
+</html>
