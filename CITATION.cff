@@ -1,9 +1,27 @@
-## Citation
+cff-version: 1.2.0
+message: "If you use Wood-Chip Monitor in academic work, please cite the associated system publication."
+title: "Wood-Chip Monitor"
+type: software
+version: 0.1.0
 
-If you use Wood-Chip Monitor in academic work, please cite the associated system publication:
+authors:
+  - family-names: "Eskorouchi"
+    given-names: "Amirhossein"
 
-> A. Eskorouchi, P. Bhattarai, A. Rahman, M. Marufuzzaman, J. T. Street, and H. Wang,  
-> **"An Edge Artificial Intelligence System for Wood Chip Quality Evaluation,"**  
-> *Proceedings of the IISE Annual Conference & Expo 2026*, 2026.
-
-Machine-readable citation metadata is provided in [`CITATION.cff`](CITATION.cff).
+preferred-citation:
+  type: conference-paper
+  title: "An Edge Artificial Intelligence System for Wood Chip Quality Evaluation"
+  year: 2026
+  authors:
+    - family-names: "Eskorouchi"
+      given-names: "Amirhossein"
+    - family-names: "Bhattarai"
+      given-names: "Prashant"
+    - family-names: "Rahman"
+      given-names: "Abdur"
+    - family-names: "Marufuzzaman"
+      given-names: "Mohammad"
+    - family-names: "Street"
+      given-names: "Jason T."
+    - family-names: "Wang"
+      given-names: "Haifeng"

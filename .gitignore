@@ -2,6 +2,7 @@
 # Wood-Chip Monitor
 # ============================================================
 
+
 # ------------------------------------------------------------
 # Python
 # ------------------------------------------------------------
@@ -11,8 +12,16 @@ __pycache__/
 *.so
 *.egg
 *.egg-info/
+*.whl
 build/
 dist/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 
 # ------------------------------------------------------------
 # Virtual environments
@@ -22,12 +31,14 @@ venv/
 env/
 ENV/
 
+
 # ------------------------------------------------------------
 # IDE / editor
 # ------------------------------------------------------------
 .vscode/
 .idea/
 *.code-workspace
+
 
 # ------------------------------------------------------------
 # Operating system files
@@ -36,14 +47,20 @@ ENV/
 Thumbs.db
 desktop.ini
 
+
 # ------------------------------------------------------------
 # Local configuration and credentials
 # ------------------------------------------------------------
 .env
 .env.*
 !.env.example
+
+# Wood-Chip Monitor local deployment configuration
+configs/device.env
+
 *.key
 *.pem
+
 
 # ------------------------------------------------------------
 # Runtime state
@@ -51,15 +68,28 @@ desktop.ini
 *.db
 *.sqlite
 *.sqlite3
+*.log
+
 logs/
 tmp/
 temp/
+
 
 # ------------------------------------------------------------
 # Wood-Chip Monitor runtime data
 # ------------------------------------------------------------
 /data/
 /outputs/
+
+
+# ------------------------------------------------------------
+# Local model-artifact storage
+#
+# The source/model definitions in models/ are tracked, but trained
+# weights and deployment/export artifacts should remain local.
+# ------------------------------------------------------------
+/models/artifacts/
+
 
 # ------------------------------------------------------------
 # Machine-learning model artifacts
@@ -70,7 +100,19 @@ temp/
 *.pth
 *.ckpt
 *.trt
+*.plan
 *.weights
+
+# TensorFlow / Keras model artifacts
+*.h5
+*.hdf5
+*.keras
+
+# Additional deployment/model formats
+*.tflite
+*.pb
+*.uff
+
 
 # ------------------------------------------------------------
 # Intermediate numerical outputs
@@ -79,7 +121,9 @@ temp/
 *.npz
 *.pkl
 *.pickle
+
 cache/
+
 
 # ------------------------------------------------------------
 # Large media
@@ -89,6 +133,7 @@ cache/
 *.mov
 *.mkv
 
+
 # ------------------------------------------------------------
 # Archives
 # ------------------------------------------------------------
@@ -97,6 +142,16 @@ cache/
 *.rar
 *.tar
 *.tar.gz
+
+
+# ------------------------------------------------------------
+# Research papers, reports, and manuscript PDFs
+#
+# Publications and project reports should be linked from the
+# repository rather than stored as binary PDFs.
+# ------------------------------------------------------------
+*.pdf
+
 
 # ------------------------------------------------------------
 # SolidWorks source files
@@ -108,6 +163,7 @@ cache/
 *.sldasm
 *.slddrw
 
+
 # ------------------------------------------------------------
 # Office / manuscript working files
 # ------------------------------------------------------------
@@ -115,6 +171,7 @@ cache/
 *.docx
 *.ppt
 *.pptx
+
 
 # ------------------------------------------------------------
 # Temporary files
