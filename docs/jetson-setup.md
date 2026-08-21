@@ -248,6 +248,164 @@ Provides the browser-based operator interface for monitoring the Wood-Chip Monit
 
 ---
 
+## Running the Monitor
+
+The complete Wood-Chip Monitor application consists of the TensorRT inference pipeline, FastAPI backend, and browser-based dashboard.
+
+The following commands should be executed on the target Jetson device from the root of the repository.
+
+### 1. Enter the Repository
+
+```bash
+cd Wood-Chip-Monitor
+```
+
+### 2. Prepare the Local Device Configuration
+
+Create a local configuration file from the provided template:
+
+```bash
+cp configs/device.env.example configs/device.env
+```
+
+Edit the local file:
+
+```bash
+nano configs/device.env
+```
+
+At minimum, review and configure:
+
+```text
+WOODCHIP_DEVICE_ID
+WOODCHIP_ADMIN_EMAIL
+WOODCHIP_ADMIN_PASSWORD
+
+WOODCHIP_CAMERA_DEVICE
+WOODCHIP_CAMERA_WIDTH
+WOODCHIP_CAMERA_HEIGHT
+WOODCHIP_CAMERA_FPS
+```
+
+For a new deployment, replace the example administrator credentials before starting the application.
+
+The local `configs/device.env` file is excluded from version control and should not be committed.
+
+### 3. Provide the Deployment Models
+
+The runtime requires TensorRT deployment artifacts for both AI components.
+
+By default, the application expects:
+
+```text
+models/
+├── detr_resnet101_fp16.engine
+├── moistnetlite_fp16.engine
+└── moistnetlite_classes.txt
+```
+
+These files are intentionally not distributed through the repository.
+
+If the deployment artifacts are stored elsewhere, configure their paths in `configs/device.env` using:
+
+```text
+WOODCHIP_MODEL_DIR
+WOODCHIP_DETR_ENGINE
+WOODCHIP_MOISTURE_ENGINE
+WOODCHIP_MOISTURE_CLASSES
+```
+
+> The archived `.onnx` detector model and `.h5` MoistNetLite weights are development/model-conversion artifacts. The live application itself expects TensorRT `.engine` files.
+
+### 4. Load the Device Configuration
+
+Export the variables from the configuration file into the current shell:
+
+```bash
+set -a
+source configs/device.env
+set +a
+```
+
+You can verify selected settings with:
+
+```bash
+echo $WOODCHIP_DEVICE_ID
+echo $WOODCHIP_CAMERA_DEVICE
+```
+
+Avoid printing passwords or other sensitive values.
+
+### 5. Start the Application
+
+From the repository root, run:
+
+```bash
+python -m app.backend_app
+```
+
+The backend starts the Wood-Chip Monitor service on:
+
+```text
+http://0.0.0.0:8000
+```
+
+The application startup also initializes:
+
+- the local SQLite database,
+- the administrator account when the database is first created,
+- the Jetson/TensorRT inference thread,
+- the event-sampling service,
+- and the browser dashboard.
+
+The application uses a single backend worker because the inference process owns the CUDA/TensorRT execution context.
+
+### 6. Open the Dashboard
+
+On the Jetson itself, open:
+
+```text
+http://localhost:8000
+```
+
+From another computer on the same network, use the Jetson's IP address:
+
+```text
+http://<JETSON-IP>:8000
+```
+
+For example:
+
+```text
+http://192.168.1.100:8000
+```
+
+Sign in using the administrator credentials configured in `configs/device.env`.
+
+### 7. Stop the Monitor
+
+Return to the terminal running the application and press:
+
+```text
+Ctrl+C
+```
+
+This stops the FastAPI service and its associated background processes.
+
+### Expected Startup Requirements
+
+Before starting the monitor, verify that:
+
+- the camera is connected and accessible,
+- the TensorRT engines exist,
+- the moisture-class file exists,
+- the configured paths are correct,
+- the Jetson CUDA/TensorRT environment is available,
+- and the local configuration has been loaded.
+
+The monitor is designed for the validated Jetson deployment environment documented in this guide. It should not be expected to run directly on a generic Windows or desktop Python environment without the corresponding NVIDIA dependencies.
+
+
 ## Standalone TensorRT Inference
 
 A standalone detector inference utility is provided at:

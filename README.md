@@ -69,6 +69,40 @@ Wood-Chip Monitor integrates **MoistNetLite**, a lightweight vision model for im
 
 Selected high-confidence chip regions are processed using a configurable Top-K strategy to limit moisture-inference cost in dense scenes.
 
+## Quick Start
+
+Wood-Chip Monitor is intended to run on the configured NVIDIA Jetson deployment platform with the required TensorRT engines available locally.
+
+```bash
+# Clone and enter the repository
+git clone https://github.com/amirhossein-eskorouchi/Wood-Chip-Monitor.git
+cd Wood-Chip-Monitor
+
+# Create a local device configuration
+cp configs/device.env.example configs/device.env
+
+# Edit device-specific settings and credentials
+nano configs/device.env
+
+# Load configuration
+set -a
+source configs/device.env
+set +a
+
+# Start the monitoring application
+python -m app.backend_app
+```
+
+Then open:
+
+```text
+http://localhost:8000
+```
+
+in a browser on the Jetson, or use `http://<JETSON-IP>:8000` from another device on the same network.
+
+> **Note:** TensorRT engines and trained model artifacts are not distributed in this repository. See [`models/README.md`](models/README.md) and [`docs/jetson-setup.md`](docs/jetson-setup.md) for model and deployment requirements.
+
 ### Edge Deployment
 
 The reference system executes the primary AI pipeline locally using NVIDIA Jetson hardware and TensorRT-optimized models.
