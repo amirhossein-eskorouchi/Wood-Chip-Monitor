@@ -598,6 +598,17 @@ Current technical documentation includes:
 
 Wood-Chip Monitor is part of a broader research effort on vision-based wood-chip quality assessment.
 
+| Resource | Role in the Research Program |
+|---|---|
+| **UOT-DETR** | Distribution-aware dense object detection and wood-chip size-distribution estimation |
+| **MoistNet / MoistNetLite** | Vision-based wood-chip moisture assessment |
+| **WoodChip-Detection** | Public dataset for dense wood-chip detection and instance analysis |
+| **Edge-AI System Paper** | Integrated deployment of geometry and moisture assessment on embedded hardware |
+
+Detailed publication and resource information is available in:
+
+**[`docs/related-research.md`](docs/related-research.md)**
+
 ### UOT-DETR
 
 The UOT-DETR project focuses on the underlying object-detection and distribution-aware visual measurement methodology.
@@ -723,16 +734,9 @@ The final repository will include citation information for the Wood-Chip Monitor
 
 ## License
 
-License information will be finalized before the public release.
+A source-code license will be added before the public release.
 
-The licensing review will distinguish between:
-
-- software source code,
-- model artifacts,
-- documentation,
-- and hardware-design materials
-
-where necessary.
+Research publications, datasets, trained model artifacts, and externally developed components remain subject to their respective licenses and usage terms.
 
 ---
 

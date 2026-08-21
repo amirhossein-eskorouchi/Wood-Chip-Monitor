@@ -1,0 +1,9 @@
+## Citation
+
+If you use Wood-Chip Monitor in academic work, please cite the associated system publication:
+
+> A. Eskorouchi, P. Bhattarai, A. Rahman, M. Marufuzzaman, J. T. Street, and H. Wang,  
+> **"An Edge Artificial Intelligence System for Wood Chip Quality Evaluation,"**  
+> *Proceedings of the IISE Annual Conference & Expo 2026*, 2026.
+
+Machine-readable citation metadata is provided in [`CITATION.cff`](CITATION.cff).
