@@ -2,14 +2,17 @@
 """
 Created on Thu May 15 11:39:01 2025
 
-@author: ae1028
+@author: Amirhossein Eskorouchi
 """
 
 import os
 print(os.getcwd())
 
 import sys
-sys.path.append(r"F:\3Spring 2025\Woodchip\Report26_Synthetic Data Generation_cutout")
+# Optional development extension path. Normal repository use does not require it.
+_project_extension_path = os.environ.get("WOODCHIP_PROJECT_EXTENSION_PATH")
+if _project_extension_path:
+    sys.path.append(_project_extension_path)
 
 import numpy as np
 import torch
@@ -32,7 +35,7 @@ class DetrModel(pl.LightningModule):
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
 
-        # ✅ Loss storage (for smooth plotting)
+        # âœ… Loss storage (for smooth plotting)
         self.training_losses = []
         self.validation_losses = []
         self.current_training_losses = []  # Stores per batch, reset every epoch
@@ -59,13 +62,13 @@ class DetrModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss, loss_dict = self.common_step(batch, batch_idx)
     
-        # ✅ Store per-batch loss for averaging
+        # âœ… Store per-batch loss for averaging
         self.current_training_losses.append(loss.item())
     
-        # ✅ Explicitly set batch size to avoid warning
+        # âœ… Explicitly set batch size to avoid warning
         batch_size = batch["pixel_values"].size(0)
         
-        # ✅ Log training loss
+        # âœ… Log training loss
         self.log("train_loss", loss, prog_bar=True, logger=True, batch_size=batch_size)
         for k, v in loss_dict.items():
             self.log(f"train_{k}", v.item(), prog_bar=False, logger=True, batch_size=batch_size)
@@ -76,13 +79,13 @@ class DetrModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         loss, loss_dict = self.common_step(batch, batch_idx)
     
-        # ✅ Store per-batch validation loss for averaging
+        # âœ… Store per-batch validation loss for averaging
         self.current_validation_losses.append(loss.item())
     
-        # ✅ Explicitly set batch size
+        # âœ… Explicitly set batch size
         batch_size = batch["pixel_values"].size(0)
         
-        # ✅ Log validation loss
+        # âœ… Log validation loss
         self.log("val_loss", loss, prog_bar=True, logger=True, batch_size=batch_size)
         for k, v in loss_dict.items():
             self.log(f"val_{k}", v.item(), prog_bar=False, logger=True, batch_size=batch_size)

@@ -1,17 +1,23 @@
 cff-version: 1.2.0
-message: "If you use Wood-Chip Monitor in academic work, please cite the associated system publication."
+message: "If you use Wood-Chip Monitor in academic work, please cite the software and associated system publication."
 title: "Wood-Chip Monitor"
 type: software
 version: 0.1.0
+date-released: 2026-08-25
+license: MIT
+repository-code: "https://github.com/amirhossein-eskorouchi/Wood-Chip-Monitor"
+url: "https://github.com/amirhossein-eskorouchi/Wood-Chip-Monitor"
 
 authors:
   - family-names: "Eskorouchi"
     given-names: "Amirhossein"
+    orcid: "https://orcid.org/0000-0002-4384-4476"
 
 preferred-citation:
   type: conference-paper
   title: "An Edge Artificial Intelligence System for Wood Chip Quality Evaluation"
   year: 2026
+  collection-title: "Proceedings of the IISE Annual Conference & Expo 2026"
   authors:
     - family-names: "Eskorouchi"
       given-names: "Amirhossein"

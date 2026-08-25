@@ -1,42 +1,40 @@
 # Acknowledgments
 
-Wood-Chip Monitor was developed as part of a broader research effort on computer-vision-based wood-chip quality assessment.
+Wood-Chip Monitor was developed as part of a broader research effort on
+computer-vision-based wood-chip quality assessment.
 
-The project integrates contributions spanning:
+The project integrates contributions spanning computer vision, machine
+learning, edge-AI deployment, size-distribution analysis, moisture assessment,
+dashboard development, mechanical design, and physical system integration.
 
-- computer vision and machine learning,
-- edge-AI deployment,
-- wood-chip size-distribution analysis,
-- moisture assessment,
-- software and dashboard development,
-- and physical prototype design.
+## Project and software development
 
-## Research Supervision
+Amirhossein Eskorouchi developed and organized the public Wood-Chip Monitor
+repository and contributed to computer vision, edge deployment, software
+integration, analytics, and documentation.
 
-The research was conducted under the supervision and collaboration of faculty associated with the wood-chip quality-monitoring research program at Mississippi State University.
+## Hardware development
 
-## Related Research Contributions
+Prashant Bhattarai contributed to the mechanical design and physical prototype
+development associated with the AI2F Summer 2025 program.
 
-Wood-Chip Monitor builds on related work in:
+## Associated system publication
 
-- DETR-based wood-chip detection,
-- UOT-DETR distribution-aware visual measurement,
-- vision-based wood-chip moisture assessment,
-- and wood-chip detection dataset development.
+The associated publication credits:
 
-## Hardware Development
+- Amirhossein Eskorouchi;
+- Prashant Bhattarai;
+- Abdur Rahman;
+- Mohammad Marufuzzaman;
+- Jason T. Street; and
+- Haifeng Wang.
 
-The physical prototype and associated mechanical design involved additional engineering contributions.
+## Related research
 
-Individual contributor names and roles will be finalized before the public release to ensure accurate attribution.
+Wood-Chip Monitor builds on related research involving DETR-based detection,
+UOT-DETR, MoistNet and MoistNetLite, and wood-chip dataset development.
 
-## Research Resources
+See [`docs/related-research.md`](docs/related-research.md).
 
-The final public release will link to the corresponding:
-
-- publications,
-- dataset,
-- research repositories,
-- and project resources.
-
-We gratefully acknowledge all collaborators and students who contributed to the development and evaluation of the system.
+We gratefully acknowledge the students, researchers, faculty collaborators,
+and institutional programs that supported the project.

@@ -1,0 +1,66 @@
+# Wood-Chip Monitor Notice
+
+Wood-Chip Monitor is a research and engineering project for edge-AI-based
+wood-chip quality evaluation.
+
+## Maintained software and documentation
+
+Unless a file or directory states otherwise, independently authored software
+and documentation in this repository are available under the MIT License in
+`LICENSE`.
+
+The MIT License applies to the maintained application code, model-definition
+code, deployment utilities, web interface, configuration templates, and
+project documentation authored for Wood-Chip Monitor.
+
+## Trained model artifacts
+
+The repository includes trained and exported model artifacts under
+`models/artifacts/`, including ONNX and HDF5 files managed with Git LFS.
+
+These artifacts are distributed as research and deployment records associated
+with Wood-Chip Monitor. Their presence does not alter the licenses or terms of
+the datasets, pretrained foundations, frameworks, or third-party components
+used to create or execute them.
+
+Users are responsible for reviewing the applicable terms of underlying
+datasets, pretrained models, frameworks, and dependencies before reuse.
+
+## Mechanical CAD files
+
+The repository includes native SolidWorks parts and assemblies under
+`hardware/cad/`.
+
+The CAD files are published as part of the project engineering record. Their
+presence does not constitute certification by an open-hardware standards
+organization and does not override third-party hardware or component terms.
+
+## Datasets and example media
+
+The repository does not grant additional rights to external datasets. Dataset
+licenses and citation requirements remain governed by their providers.
+
+Example images, predictions, figures, and validation records are included for
+project documentation and reproducibility.
+
+## Publications
+
+Scholarly articles, conference papers, abstracts, and publisher-formatted
+materials retain their respective copyrights and publication terms.
+
+## Third-party components
+
+Wood-Chip Monitor uses third-party ecosystems including NVIDIA Jetson, CUDA,
+TensorRT, PyTorch, PyTorch Lightning, Transformers, FastAPI, OpenCV, NumPy,
+and related libraries.
+
+Their names, trademarks, pretrained components, frameworks, and dependencies
+remain subject to their respective owners' terms.
+
+## Research-use boundary
+
+Wood-Chip Monitor is research software and an engineering prototype. It is not
+provided as a certified industrial measurement, safety, or regulatory system.
+
+Users are responsible for calibration, validation, security, deployment
+testing, and fitness-for-purpose assessment.

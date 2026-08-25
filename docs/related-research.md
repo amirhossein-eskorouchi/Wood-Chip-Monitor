@@ -52,25 +52,37 @@ The dataset supports research on dense wood-chip detection, instance-level analy
 
 ## Research Scope
 
-The repositories and publications serve complementary purposes:
+The resources serve complementary roles:
 
-```text
-WoodChip-Detection Dataset
-          |
-          v
-Detection / Visual Measurement Research
-          |
-          +---- UOT-DETR
-          |
-          v
-Wood-Chip Monitor
-          |
-          +---- Physical size estimation
-          +---- Size-distribution monitoring
-          +---- Oversize detection
-          +---- MoistNetLite moisture assessment
-          |
-          v
-Industrial Edge-AI Decision Support
+    WoodChip-Detection Dataset
+              |
+              v
+    Detection and Visual-Measurement Research
+              |
+              +---- UOT-DETR
+              |
+              v
+    Wood-Chip Monitor
+              |
+              +---- Physical size estimation
+              +---- Size-distribution monitoring
+              +---- Oversize detection
+              +---- MoistNetLite moisture assessment
+              |
+              v
+    Industrial Edge-AI Decision Support
 
-The complete publication and project portfolio will also be presented through the associated personal research website.
+Resources:
+
+- Wood-Chip Monitor:
+  <https://github.com/amirhossein-eskorouchi/Wood-Chip-Monitor>
+- UOT-DETR:
+  <https://github.com/amirhossein-eskorouchi/UOT-DETR>
+- MoistNet:
+  <https://doi.org/10.1016/j.eswa.2024.125363>
+- WoodChip-Detection dataset:
+  <https://doi.org/10.5281/zenodo.18392693>
+
+See [`../CITATION.cff`](../CITATION.cff),
+[`../CITATION.bib`](../CITATION.bib), and
+[`CITATION.md`](CITATION.md).

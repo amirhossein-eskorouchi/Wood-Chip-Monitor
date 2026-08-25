@@ -46,14 +46,26 @@ Detailed software information is available in:
 
 ## Mechanical Design
 
-Custom mechanical components were developed to integrate the camera, edge-computing hardware, display, and enclosure into the portable prototype.
+Custom mechanical components integrate the camera, Jetson Nano, touchscreen,
+mounting hardware, and enclosure.
 
-The original development archive contains SolidWorks part and assembly files. These source CAD files are not currently distributed through this repository.
+The public repository preserves native SolidWorks files under
+[`cad/`](cad/) as part of the versioned engineering record.
 
-This repository focuses on the research software and system architecture while preserving visual documentation of the physical prototype.
+## Hardware-release scope
 
-## Open-Hardware Scope
+The CAD package is publicly available with version 0.1.0 for research,
+engineering reference, reproducibility, and continued development.
 
-The inclusion of prototype photographs or mechanical-design figures should not be interpreted as an open-source release of the complete mechanical CAD package.
+Its inclusion does not constitute certification by an open-hardware standards
+organization and does not override terms applicable to third-party hardware
+or software components.
 
-If the mechanical design is released separately in the future, corresponding licensing and attribution information will be provided.
+See [`../NOTICE`](../NOTICE) and [`cad/README.md`](cad/README.md).
+
+## Attribution
+
+Prashant Bhattarai contributed to the mechanical design and physical prototype
+development associated with the AI2F Summer 2025 program.
+
+See [`../ACKNOWLEDGMENTS.md`](../ACKNOWLEDGMENTS.md).

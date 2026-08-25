@@ -14,16 +14,16 @@ The package contains the following SolidWorks source files:
 
 ```text
 hardware/cad/
-├── 7_inch_LCD_CASE.SLDPRT
-├── CAMERA_HOLDER.SLDPRT
-├── Camera_Lock_System.SLDPRT
-├── Handle.SLDPRT
-├── Hook.SLDPRT
-├── Intergrated_camera.SLDPRT
-├── Jetson_nano_case.SLDPRT
-├── NEW ASSEMBLY.SLDASM
-├── port_lid.SLDPRT
-└── README.md
+â”œâ”€â”€ 7_inch_LCD_CASE.SLDPRT
+â”œâ”€â”€ CAMERA_HOLDER.SLDPRT
+â”œâ”€â”€ Camera_Lock_System.SLDPRT
+â”œâ”€â”€ Handle.SLDPRT
+â”œâ”€â”€ Hook.SLDPRT
+â”œâ”€â”€ Intergrated_camera.SLDPRT
+â”œâ”€â”€ Jetson_nano_case.SLDPRT
+â”œâ”€â”€ NEW ASSEMBLY.SLDASM
+â”œâ”€â”€ port_lid.SLDPRT
+â””â”€â”€ README.md
 ```
 
 ## Primary Assembly
@@ -194,83 +194,41 @@ Update complete prototype assembly
 
 ## Repository Scope
 
-These CAD files are stored as part of the private Wood-Chip Monitor research and development repository.
+The SolidWorks files are included in the public Wood-Chip Monitor repository
+to preserve the complete versioned engineering record.
 
-They are included to preserve the complete engineering record of the prototype alongside the software, deployment, and validation components of the project.
+The package should be treated as a coordinated assembly. Component files
+should remain together so SolidWorks can resolve assembly references.
 
-The presence of the CAD source in this private repository does not constitute a public open-hardware release.
+## Release and licensing boundary
 
-## Intellectual Property Status
+The CAD files are publicly downloadable as engineering records. Their presence
+does not constitute certification by an open-hardware standards organization.
 
-The Wood-Chip Monitor project includes research software, AI models, mechanical design, deployment methods, and system-integration work that may be subject to collaborator, institutional, publication, or intellectual-property considerations.
+The MIT License applies to independently authored software and documentation.
+See [`../../NOTICE`](../../NOTICE) for the mechanical-design and third-party
+boundaries.
 
-Accordingly:
-
-- these CAD files should remain within the private repository at this stage,
-- they should not be publicly redistributed without appropriate review,
-- they should not be interpreted as being released under an open-hardware license,
-- and public release should be considered separately from the source-code release strategy.
-
-If the mechanical design is released publicly in the future, its licensing, attribution, and intellectual-property status should be defined explicitly.
+Users are responsible for fabrication suitability, dimensions, tolerances,
+materials, assembly references, third-party hardware terms, safety validation,
+and applicable attribution.
 
 ## Attribution
 
-The mechanical design and physical prototype development were carried out as part of the Wood-Chip Monitor hardware-development effort associated with the AI2F Summer 2025 program.
+Prashant Bhattarai contributed to the mechanical design and physical prototype
+development associated with the AI2F Summer 2025 program.
 
-Prashant Bhattarai contributed to the mechanical design and physical prototype development of the system.
+See [`../../ACKNOWLEDGMENTS.md`](../../ACKNOWLEDGMENTS.md).
 
-The broader Wood-Chip Monitor project integrates contributions spanning:
+## Related repository components
 
-- computer vision,
-- wood-chip detection and geometric measurement,
-- moisture assessment,
-- edge-AI deployment,
-- backend and web-application development,
-- quality analytics,
-- and physical prototype design.
+- `app/`: edge inference, backend, and dashboard;
+- `models/`: model definitions and deployment artifacts;
+- `tools/`: TensorRT utilities;
+- `configs/`: configuration templates;
+- `docs/`: architecture and deployment documentation;
+- `validation/`: deployment-validation records;
+- `examples/`: representative inputs and predictions; and
+- `assets/`: prototype and analytical figures.
 
-Repository-level contributor information and acknowledgments are maintained in:
-
-[`../../ACKNOWLEDGMENTS.md`](../../ACKNOWLEDGMENTS.md)
-
-## Related Repository Components
-
-The CAD source is one component of the complete Wood-Chip Monitor repository.
-
-Related resources include:
-
-```text
-app/
-    Core edge-inference pipeline, backend service, and web dashboard
-
-models/
-    Model definitions and deployment-artifact documentation
-
-tools/
-    TensorRT inference and deployment utilities
-
-configs/
-    Device configuration templates
-
-docs/
-    Architecture, deployment, environment, and user documentation
-
-validation/
-    Historical deployment-validation records
-
-examples/
-    Representative input images and prediction outputs
-
-assets/
-    Dashboard, prototype, and analytical visualizations
-```
-
-For a system-level description of how these components interact, see:
-
-[`../../docs/architecture.md`](../../docs/architecture.md)
-
-## Private Repository Notice
-
-At the current stage, this directory is maintained for internal research, engineering, reproducibility, and intellectual-property documentation.
-
-Public disclosure, redistribution, licensing, or external release of these CAD files should occur only after appropriate project, collaborator, institutional, and intellectual-property review.
+See [`../../docs/architecture.md`](../../docs/architecture.md).

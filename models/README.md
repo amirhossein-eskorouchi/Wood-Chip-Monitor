@@ -17,11 +17,11 @@ By default, the application expects the following model-related structure:
 
 ```text
 models/
-├── detr_resnet101_fp16.engine
-├── moistnetlite_fp16.engine
-├── moistnetlite_classes.txt
-├── moistnetlite.py
-└── README.md
+â”œâ”€â”€ detr_resnet101_fp16.engine
+â”œâ”€â”€ moistnetlite_fp16.engine
+â”œâ”€â”€ moistnetlite_classes.txt
+â”œâ”€â”€ moistnetlite.py
+â””â”€â”€ README.md
 ```
 
 The TensorRT engine files are local deployment artifacts and are excluded from version control.
@@ -87,7 +87,7 @@ The architecture uses:
 The model accepts RGB image regions with an expected input size of:
 
 ```text
-224 × 224 × 3
+224 Ã— 224 Ã— 3
 ```
 
 and produces predictions for three moisture-condition categories.
@@ -118,23 +118,23 @@ The general workflow is:
 
 ```text
 DETR detections
-       │
-       ▼
+       â”‚
+       â–¼
 Confidence filtering
-       │
-       ▼
+       â”‚
+       â–¼
 Candidate chip regions
-       │
-       ▼
+       â”‚
+       â–¼
 Top-K region selection
-       │
-       ▼
+       â”‚
+       â–¼
 Crop extraction
-       │
-       ▼
+       â”‚
+       â–¼
 MoistNetLite TensorRT inference
-       │
-       ▼
+       â”‚
+       â–¼
 Moisture assessment
 ```
 
@@ -180,17 +180,17 @@ The detector provides:
 
 ```text
 Camera frame
-     │
-     ▼
+     â”‚
+     â–¼
 Wood-chip detections
-     │
-     ├──► physical dimensions
-     │
-     ├──► size distribution
-     │
-     ├──► oversize analysis
-     │
-     └──► candidate chip regions
+     â”‚
+     â”œâ”€â”€â–º physical dimensions
+     â”‚
+     â”œâ”€â”€â–º size distribution
+     â”‚
+     â”œâ”€â”€â–º oversize analysis
+     â”‚
+     â””â”€â”€â–º candidate chip regions
 ```
 
 ### MoistNetLite
@@ -199,14 +199,14 @@ Selected chip regions are passed to the moisture-assessment component:
 
 ```text
 Candidate chip regions
-        │
-        ▼
+        â”‚
+        â–¼
 Top-K selection
-        │
-        ▼
+        â”‚
+        â–¼
 MoistNetLite
-        │
-        ▼
+        â”‚
+        â–¼
 Moisture predictions
 ```
 
@@ -283,17 +283,17 @@ The general detector deployment workflow is:
 
 ```text
 Training checkpoint
-        │
-        ▼
+        â”‚
+        â–¼
    PyTorch model
-        │
-        ▼
+        â”‚
+        â–¼
       ONNX
-        │
-        ▼
+        â”‚
+        â–¼
  TensorRT engine
-        │
-        ▼
+        â”‚
+        â–¼
 Wood-Chip Monitor
 ```
 
@@ -487,23 +487,23 @@ The main files associated with model execution are:
 
 ```text
 app/
-└── live_cam_trt.py
+â””â”€â”€ live_cam_trt.py
 ```
 
 for the integrated live edge-inference pipeline,
 
 ```text
 models/
-├── moistnetlite.py
-└── README.md
+â”œâ”€â”€ moistnetlite.py
+â””â”€â”€ README.md
 ```
 
 for the moisture-model architecture and model documentation, and
 
 ```text
 tools/
-├── infer_trt.py
-└── README.md
+â”œâ”€â”€ infer_trt.py
+â””â”€â”€ README.md
 ```
 
 for standalone deployment and inference utilities.
@@ -535,15 +535,19 @@ This distinction helps avoid presenting a device-specific binary as though it we
 
 ## Availability
 
-Model weights and deployment artifacts are not currently distributed directly through this repository.
+The public repository includes approved deployment artifacts under
+`models/artifacts/`.
 
-The repository currently provides:
+Large ONNX and HDF5 payloads are managed with Git LFS. Install Git LFS before
+cloning when complete model payloads are required.
 
-- the deployed application logic,
-- the MoistNetLite architecture definition,
-- TensorRT runtime integration,
-- model-path configuration,
-- standalone detector inference tooling,
-- and deployment documentation.
+The repository distinguishes among model-definition source, trained weights,
+ONNX representations, simplified deployment representations, and
+device-specific TensorRT engines.
 
-Information on publicly available model weights, authorized model access, reproducible model preparation, and associated research resources will be added as the public release is finalized.
+TensorRT engines are not distributed because they depend on the device,
+TensorRT version, CUDA stack, and export configuration.
+
+Public availability of an artifact does not override the licenses or terms of
+underlying datasets, pretrained models, frameworks, or third-party components.
+See [`../NOTICE`](../NOTICE).
