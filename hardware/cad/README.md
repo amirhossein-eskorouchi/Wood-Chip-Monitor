@@ -14,16 +14,16 @@ The package contains the following SolidWorks source files:
 
 ```text
 hardware/cad/
-â”œâ”€â”€ 7_inch_LCD_CASE.SLDPRT
-â”œâ”€â”€ CAMERA_HOLDER.SLDPRT
-â”œâ”€â”€ Camera_Lock_System.SLDPRT
-â”œâ”€â”€ Handle.SLDPRT
-â”œâ”€â”€ Hook.SLDPRT
-â”œâ”€â”€ Intergrated_camera.SLDPRT
-â”œâ”€â”€ Jetson_nano_case.SLDPRT
-â”œâ”€â”€ NEW ASSEMBLY.SLDASM
-â”œâ”€â”€ port_lid.SLDPRT
-â””â”€â”€ README.md
+|-- 7_inch_LCD_CASE.SLDPRT
+|-- CAMERA_HOLDER.SLDPRT
+|-- Camera_Lock_System.SLDPRT
+|-- Handle.SLDPRT
+|-- Hook.SLDPRT
+|-- Intergrated_camera.SLDPRT
+|-- Jetson_nano_case.SLDPRT
+|-- NEW ASSEMBLY.SLDASM
+|-- port_lid.SLDPRT
+`-- README.md
 ```
 
 ## Primary Assembly
@@ -228,7 +228,6 @@ See [`../../ACKNOWLEDGMENTS.md`](../../ACKNOWLEDGMENTS.md).
 - `configs/`: configuration templates;
 - `docs/`: architecture and deployment documentation;
 - `validation/`: deployment-validation records;
-- `examples/`: representative inputs and predictions; and
 - `assets/`: prototype and analytical figures.
 
 See [`../../docs/architecture.md`](../../docs/architecture.md).

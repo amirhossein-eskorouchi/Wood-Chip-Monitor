@@ -414,14 +414,14 @@ A standalone detector inference utility is provided at:
 tools/infer_trt.py
 ```
 
-The utility can be used to run the deployed DETR TensorRT engine on example images independently from the complete monitoring application.
+The utility can be used to run the deployed DETR TensorRT engine on a user-specified directory of input images independently from the complete monitoring application.
 
 Example:
 
 ```bash
 python tools/infer_trt.py \
     --engine models/detr_resnet101_fp16.engine \
-    --images examples/images \
+    --images /path/to/input/images \
     --output outputs/predictions
 ```
 

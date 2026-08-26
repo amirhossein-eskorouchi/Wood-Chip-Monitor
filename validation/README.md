@@ -108,26 +108,6 @@ For example:
 - [`../assets/size_distribution.png`](../assets/size_distribution.png)
 - [`../assets/size_boxplot.png`](../assets/size_boxplot.png)
 
-## 6. Representative Visual Examples
-
-Representative input images and detector outputs are available in:
-
-```text
-examples/
-├── images/
-└── predictions/
-```
-
-The source images are stored in:
-
-[`../examples/images/`](../examples/images/)
-
-The corresponding archived prediction visualizations are stored in:
-
-[`../examples/predictions/`](../examples/predictions/)
-
-These examples provide a compact visual record of detector behavior without including the much larger collection of intermediate development artifacts from the original project archive.
-
 ## Validation Files
 
 The compact validation record included in this repository is:

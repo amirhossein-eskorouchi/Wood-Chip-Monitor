@@ -17,11 +17,11 @@ By default, the application expects the following model-related structure:
 
 ```text
 models/
-â”œâ”€â”€ detr_resnet101_fp16.engine
-â”œâ”€â”€ moistnetlite_fp16.engine
-â”œâ”€â”€ moistnetlite_classes.txt
-â”œâ”€â”€ moistnetlite.py
-â””â”€â”€ README.md
+|-- detr_resnet101_fp16.engine
+|-- moistnetlite_fp16.engine
+|-- moistnetlite_classes.txt
+|-- moistnetlite.py
+`-- README.md
 ```
 
 The TensorRT engine files are local deployment artifacts and are excluded from version control.
@@ -87,7 +87,7 @@ The architecture uses:
 The model accepts RGB image regions with an expected input size of:
 
 ```text
-224 Ã— 224 Ã— 3
+224 x 224 x 3
 ```
 
 and produces predictions for three moisture-condition categories.
@@ -118,23 +118,23 @@ The general workflow is:
 
 ```text
 DETR detections
-       â”‚
-       â–¼
+       |
+       v
 Confidence filtering
-       â”‚
-       â–¼
+       |
+       v
 Candidate chip regions
-       â”‚
-       â–¼
+       |
+       v
 Top-K region selection
-       â”‚
-       â–¼
+       |
+       v
 Crop extraction
-       â”‚
-       â–¼
+       |
+       v
 MoistNetLite TensorRT inference
-       â”‚
-       â–¼
+       |
+       v
 Moisture assessment
 ```
 
@@ -180,17 +180,17 @@ The detector provides:
 
 ```text
 Camera frame
-     â”‚
-     â–¼
+     |
+     v
 Wood-chip detections
-     â”‚
-     â”œâ”€â”€â–º physical dimensions
-     â”‚
-     â”œâ”€â”€â–º size distribution
-     â”‚
-     â”œâ”€â”€â–º oversize analysis
-     â”‚
-     â””â”€â”€â–º candidate chip regions
+     |
+     |--> physical dimensions
+     |
+     |--> size distribution
+     |
+     |--> oversize analysis
+     |
+     `--> candidate chip regions
 ```
 
 ### MoistNetLite
@@ -199,14 +199,14 @@ Selected chip regions are passed to the moisture-assessment component:
 
 ```text
 Candidate chip regions
-        â”‚
-        â–¼
+        |
+        v
 Top-K selection
-        â”‚
-        â–¼
+        |
+        v
 MoistNetLite
-        â”‚
-        â–¼
+        |
+        v
 Moisture predictions
 ```
 
@@ -283,17 +283,17 @@ The general detector deployment workflow is:
 
 ```text
 Training checkpoint
-        â”‚
-        â–¼
+        |
+        v
    PyTorch model
-        â”‚
-        â–¼
+        |
+        v
       ONNX
-        â”‚
-        â–¼
+        |
+        v
  TensorRT engine
-        â”‚
-        â–¼
+        |
+        v
 Wood-Chip Monitor
 ```
 
@@ -487,23 +487,23 @@ The main files associated with model execution are:
 
 ```text
 app/
-â””â”€â”€ live_cam_trt.py
+`-- live_cam_trt.py
 ```
 
 for the integrated live edge-inference pipeline,
 
 ```text
 models/
-â”œâ”€â”€ moistnetlite.py
-â””â”€â”€ README.md
+|-- moistnetlite.py
+`-- README.md
 ```
 
 for the moisture-model architecture and model documentation, and
 
 ```text
 tools/
-â”œâ”€â”€ infer_trt.py
-â””â”€â”€ README.md
+|-- infer_trt.py
+`-- README.md
 ```
 
 for standalone deployment and inference utilities.

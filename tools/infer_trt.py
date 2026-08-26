@@ -405,7 +405,7 @@ def parse_args():
 
     parser.add_argument(
         "--images",
-        default="examples/images",
+        required=True,
         help="Directory containing input images.",
     )
 

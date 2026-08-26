@@ -35,7 +35,7 @@ class DetrModel(pl.LightningModule):
         self.lr_backbone = lr_backbone
         self.weight_decay = weight_decay
 
-        # âœ… Loss storage (for smooth plotting)
+        #  Loss storage (for smooth plotting)
         self.training_losses = []
         self.validation_losses = []
         self.current_training_losses = []  # Stores per batch, reset every epoch
@@ -62,13 +62,13 @@ class DetrModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss, loss_dict = self.common_step(batch, batch_idx)
     
-        # âœ… Store per-batch loss for averaging
+        #  Store per-batch loss for averaging
         self.current_training_losses.append(loss.item())
     
-        # âœ… Explicitly set batch size to avoid warning
+        #  Explicitly set batch size to avoid warning
         batch_size = batch["pixel_values"].size(0)
         
-        # âœ… Log training loss
+        #  Log training loss
         self.log("train_loss", loss, prog_bar=True, logger=True, batch_size=batch_size)
         for k, v in loss_dict.items():
             self.log(f"train_{k}", v.item(), prog_bar=False, logger=True, batch_size=batch_size)
@@ -79,13 +79,13 @@ class DetrModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         loss, loss_dict = self.common_step(batch, batch_idx)
     
-        # âœ… Store per-batch validation loss for averaging
+        #  Store per-batch validation loss for averaging
         self.current_validation_losses.append(loss.item())
     
-        # âœ… Explicitly set batch size
+        #  Explicitly set batch size
         batch_size = batch["pixel_values"].size(0)
         
-        # âœ… Log validation loss
+        #  Log validation loss
         self.log("val_loss", loss, prog_bar=True, logger=True, batch_size=batch_size)
         for k, v in loss_dict.items():
             self.log(f"val_{k}", v.item(), prog_bar=False, logger=True, batch_size=batch_size)

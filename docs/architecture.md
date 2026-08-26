@@ -597,7 +597,6 @@ Wood-Chip-Monitor/
 │   ├── jetson-setup.md
 │   └── software-environment.md
 │
-├── examples/
 │   ├── images/
 │   └── predictions/
 │

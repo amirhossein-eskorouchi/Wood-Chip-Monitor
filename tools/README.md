@@ -42,7 +42,7 @@ From the repository root:
 ```bash
 python tools/infer_trt.py \
     --engine models/detr_resnet101_fp16.engine \
-    --images examples/images \
+    --images /path/to/input/images \
     --output outputs/predictions
 ```
 
@@ -51,7 +51,7 @@ On Windows PowerShell, the same command can be written as:
 ```powershell
 python tools\infer_trt.py `
     --engine models\detr_resnet101_fp16.engine `
-    --images examples\images `
+    --images /path/to/input/images `
     --output outputs\predictions
 ```
 
@@ -60,7 +60,7 @@ python tools\infer_trt.py `
 | Argument | Description | Default |
 |---|---|---|
 | `--engine` | Path to the TensorRT DETR engine | Required |
-| `--images` | Directory containing input images | `examples/images` |
+| `--images` | Directory containing input images | `/path/to/input/images` |
 | `--output` | Directory for annotated predictions | `outputs/predictions` |
 | `--confidence` | Detection confidence threshold | `0.5` |
 | `--nms-iou` | Non-maximum suppression IoU threshold | `0.5` |
@@ -70,7 +70,7 @@ Example with custom thresholds:
 ```bash
 python tools/infer_trt.py \
     --engine models/detr_resnet101_fp16.engine \
-    --images examples/images \
+    --images /path/to/input/images \
     --output outputs/predictions \
     --confidence 0.60 \
     --nms-iou 0.50
@@ -92,12 +92,6 @@ outputs/
 ```
 
 Runtime-generated outputs are excluded from version control.
-
-Representative prediction examples are instead maintained under:
-
-```text
-examples/predictions/
-```
 
 ## Model Export
 
