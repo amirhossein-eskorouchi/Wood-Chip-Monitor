@@ -1,4 +1,4 @@
-# motionTracking.py
+# woodChipGUI.py
 """
 Wood-Chip Monitor - Live Motion Tracking and Inference System
 Fully compatible with both Windows and Linux.
@@ -23,6 +23,10 @@ import time
 from datetime import datetime, timezone
 import platform
 import math
+import csv
+import queue
+from collections import deque
+from typing import List, Dict, Optional, Tuple
 import numpy as np
 import cv2
 import threading
@@ -182,6 +186,20 @@ ALARM_ENABLED = True
 ALARM_ACTIVE = False
 ALARM_MAX_D_MM = None
 
+# Max Bounding Box Filter (Optional toggle: ignore false positives > 1000mm)
+FILTER_MAX_1000MM = True
+MAX_SIZE_LIMIT_MM = 800.0
+
+# High-Speed Conveyor Motion Tracker & Lock-In Config
+CONVEYOR_TRACKING_ENABLED = True
+TRACKER_MAX_MATCH_DIST = 180.0  # Pixels (accommodates high-speed conveyor belt motion)
+TRACKER_MAX_LOST_FRAMES = 8     # Retain track through brief occlusion/misses
+TRACKER_MIN_HITS_TO_LOCK = 2    # Detections required to confirm and lock in
+
+# CSV Data Logging ('yyyymmdd_woodChips.csv')
+CSV_LOGGING_ENABLED = True
+CSV_LOG_THROTTLE_SEC = 0.25     # Throttle write interval per chip to prevent oversized files
+
 # Histogram mode
 HISTOGRAM_MODE = "diameter"
 ROLLING_MAX = 2000
@@ -248,6 +266,10 @@ def get_runtime_config():
         "hist_d_max_mm": float(HIST_D_MAX_MM),
         "hist_ema_enabled": bool(HIST_EMA_ENABLED),
         "hist_ema_alpha": float(HIST_EMA_ALPHA),
+        "filter_max_1000mm": bool(FILTER_MAX_1000MM),
+        "max_size_limit_mm": float(MAX_SIZE_LIMIT_MM),
+        "conveyor_tracking_enabled": bool(CONVEYOR_TRACKING_ENABLED),
+        "csv_logging_enabled": bool(CSV_LOGGING_ENABLED),
     }
 
 
@@ -266,10 +288,18 @@ def update_runtime_config(
     moisture_enabled=None,
     moisture_topk=None,
     moisture_every_n_frames=None,
+    filter_max_1000mm=None,
+    csv_logging_enabled=None,
     **_ignored
 ):
     global CONF_THR, NMS_IOU, ALARM_THRESHOLD_MM, ALARM_ENABLED, REF_DIAM_MM, HISTOGRAM_MODE
-    global MOISTURE_ENABLED, MOISTURE_TOPK, MOISTURE_EVERY_N_FRAMES
+    global MOISTURE_ENABLED, MOISTURE_TOPK, MOISTURE_EVERY_N_FRAMES, FILTER_MAX_1000MM, CSV_LOGGING_ENABLED
+
+    if filter_max_1000mm is not None:
+        FILTER_MAX_1000MM = bool(filter_max_1000mm)
+
+    if csv_logging_enabled is not None:
+        CSV_LOGGING_ENABLED = bool(csv_logging_enabled)
 
     if conf_thr is not None:
         try:
@@ -534,31 +564,75 @@ def compute_diameter_stats(D_buf, units, scale_mean=None, scale_std=None):
     return stats
 
 
-def draw_stats_panel(frame, D_buf, units, scale_mean=None, scale_std=None, num_objects=0, normal_count=0, oversize_count=0):
-    """Render diameter statistics panel on top-right of frame with live object counts."""
+# =================== MODERN HUD & GRAPHICS SYSTEM ===================
+def draw_rounded_rect(img, pt1, pt2, color, thickness=1, radius=6):
+    """Draw a smooth rounded rectangle with anti-aliasing."""
+    x1, y1 = int(pt1[0]), int(pt1[1])
+    x2, y2 = int(pt2[0]), int(pt2[1])
+    w = x2 - x1
+    h = y2 - y1
+    r = max(1, min(radius, w // 2, h // 2))
+
+    if thickness == -1:
+        cv2.rectangle(img, (x1 + r, y1), (x2 - r, y2), color, -1)
+        cv2.rectangle(img, (x1, y1 + r), (x2, y2 - r), color, -1)
+        cv2.circle(img, (x1 + r, y1 + r), r, color, -1, cv2.LINE_AA)
+        cv2.circle(img, (x2 - r, y1 + r), r, color, -1, cv2.LINE_AA)
+        cv2.circle(img, (x1 + r, y2 - r), r, color, -1, cv2.LINE_AA)
+        cv2.circle(img, (x2 - r, y2 - r), r, color, -1, cv2.LINE_AA)
+    else:
+        cv2.line(img, (x1 + r, y1), (x2 - r, y1), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x1 + r, y2), (x2 - r, y2), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x1, y1 + r), (x1, y2 - r), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x2, y1 + r), (x2, y2 - r), color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x1 + r, y1 + r), (r, r), 180, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x2 - r, y1 + r), (r, r), 270, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x2 - r, y2 - r), (r, r), 0, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x1 + r, y2 - r), (r, r), 90, 0, 90, color, thickness, cv2.LINE_AA)
+
+
+def draw_glass_card(img, pt1, pt2, bg_color=(18, 22, 28), border_color=(55, 70, 90), alpha=0.82, radius=8, highlight=True):
+    """Render a modern translucent frosted-glass card with anti-aliased corners and top sheen."""
+    x1, y1 = max(0, int(pt1[0])), max(0, int(pt1[1]))
+    x2, y2 = min(img.shape[1] - 1, int(pt2[0])), min(img.shape[0] - 1, int(pt2[1]))
+    if x2 <= x1 or y2 <= y1:
+        return
+    sub = img[y1:y2, x1:x2]
+    overlay = sub.copy()
+    draw_rounded_rect(overlay, (0, 0), (x2 - x1, y2 - y1), bg_color, -1, radius=radius)
+    cv2.addWeighted(overlay, alpha, sub, 1.0 - alpha, 0, dst=sub)
+    draw_rounded_rect(img, (x1, y1), (x2, y2), border_color, 1, radius=radius)
+    if highlight and (x2 - x1) > 2 * radius:
+        hl_color = (min(255, border_color[0] + 45), min(255, border_color[1] + 45), min(255, border_color[2] + 45))
+        cv2.line(img, (x1 + radius, y1 + 1), (x2 - radius, y1 + 1), hl_color, 1, cv2.LINE_AA)
+
+
+def draw_stats_panel(frame, D_buf, units, scale_mean=None, scale_std=None, num_objects=0, normal_count=0, oversize_count=0,
+                     conveyor_speed=0.0, locked_count=0, filter_max_1000=True):
+    """Render modern high-precision telemetry panel on top-right of frame."""
     h, w = frame.shape[:2]
-    panel_w, panel_h = 280, 235
+    panel_w, panel_h = 270, 316
     if w < panel_w + 20 or h < panel_h + 20:
         return frame
 
     x0, y0 = w - panel_w - 12, 12
-    sub = frame[y0:y0+panel_h, x0:x0+panel_w]
-    panel = np.zeros_like(sub)
-    panel[:] = (20, 24, 28)
-
+    x1, y1 = x0 + panel_w, y0 + panel_h
     font = cv2.FONT_HERSHEY_SIMPLEX
-    y = 25
-    cv2.putText(panel, "Diameter Stats", (10, y), font, 0.72, (0, 220, 255), 2, cv2.LINE_AA)
 
-    # Objects detected line
-    y += 24
-    obj_color = (0, 220, 255) if num_objects == 0 else ((0, 100, 255) if oversize_count > 0 else (0, 255, 120))
-    cv2.putText(panel, f"Objects: {num_objects} ({normal_count} norm, {oversize_count} over)", (10, y), font, 0.48, obj_color, 1, cv2.LINE_AA)
+    # Glass container card
+    draw_glass_card(frame, (x0, y0), (x1, y1), bg_color=(16, 19, 25), border_color=(55, 70, 90), alpha=0.85, radius=8)
 
-    # Alarm Threshold line
-    y += 20
-    thr_color = (0, 100, 255) if ALARM_ACTIVE else (180, 220, 255)
-    cv2.putText(panel, f"Alarm Thr: {ALARM_THRESHOLD_MM:.1f} mm", (10, y), font, 0.48, thr_color, 1, cv2.LINE_AA)
+    # Accent header bar
+    cv2.rectangle(frame, (x0 + 10, y0 + 10), (x0 + 13, y0 + 26), (255, 200, 40), -1)
+    cv2.putText(frame, "DIAMETER STATS", (x0 + 20, y0 + 23), font, 0.48, (245, 248, 252), 2, cv2.LINE_AA)
+
+    # Unit badge pill [mm]
+    draw_rounded_rect(frame, (x1 - 48, y0 + 10), (x1 - 12, y0 + 26), (35, 45, 58), -1, radius=4)
+    draw_rounded_rect(frame, (x1 - 48, y0 + 10), (x1 - 12, y0 + 26), (255, 200, 40), 1, radius=4)
+    cv2.putText(frame, units, (x1 - 40, y0 + 22), font, 0.36, (255, 200, 40), 1, cv2.LINE_AA)
+
+    # Divider line
+    cv2.line(frame, (x0 + 10, y0 + 34), (x1 - 10, y0 + 34), (45, 55, 70), 1, cv2.LINE_AA)
 
     if len(D_buf) > 0:
         D_arr = np.array(D_buf, dtype=np.float32)
@@ -569,136 +643,186 @@ def draw_stats_panel(frame, D_buf, units, scale_mean=None, scale_std=None, num_o
         dmax = float(np.max(D_arr))
         batch = classify_batch(D_buf)
 
-        y += 21
-        cv2.putText(panel, f"Mean : {mean:.1f} {units}", (10, y), font, 0.52, (0, 255, 120), 1, cv2.LINE_AA)
-        y += 20
-        cv2.putText(panel, f"Median: {med:.1f} {units}", (10, y), font, 0.52, (0, 255, 120), 1, cv2.LINE_AA)
-        y += 20
-        cv2.putText(panel, f"Std  : {std:.1f} {units}", (10, y), font, 0.52, (0, 255, 120), 1, cv2.LINE_AA)
-        y += 20
-        cv2.putText(panel, f"Min  : {dmin:.1f} {units}", (10, y), font, 0.52, (0, 255, 120), 1, cv2.LINE_AA)
-        y += 20
-        cv2.putText(panel, f"Max  : {dmax:.1f} {units}", (10, y), font, 0.52, (0, 255, 120), 1, cv2.LINE_AA)
-        y += 20
-        cv2.putText(panel, f"Batch: {batch}", (10, y), font, 0.52, (255, 200, 0), 1, cv2.LINE_AA)
+        cal_str = f"{scale_mean:.1f} px/mm" if (scale_mean and scale_mean > 0) else f"{DEFAULT_PIXELS_PER_MM:.1f} (def)"
+        thr_col = (45, 60, 255) if ALARM_ACTIVE else (0, 230, 255)
 
-        if scale_mean is not None and scale_mean > 0:
-            y += 20
-            if scale_std is not None:
-                cv2.putText(panel, f"px/mm: {scale_mean:.1f} +/- {scale_std:.1f}", (10, y), font, 0.50, (200, 200, 255), 1, cv2.LINE_AA)
-            else:
-                cv2.putText(panel, f"px/mm: {scale_mean:.1f}", (10, y), font, 0.50, (200, 200, 255), 1, cv2.LINE_AA)
+        rows = [
+            ("Mean Diameter", f"{mean:.1f} {units}", (50, 230, 130)),
+            ("Median Diameter", f"{med:.1f} {units}", (50, 230, 130)),
+            ("Std Deviation", f"{std:.1f} {units}", (235, 240, 248)),
+            ("Min / Max", f"{dmin:.1f} / {dmax:.1f} {units}", (235, 240, 248)),
+            ("Batch Quality", batch, (30, 195, 255)),
+            ("Alarm Limit", f"{ALARM_THRESHOLD_MM:.0f} {units}", thr_col),
+            ("Locked Chips", f"{locked_count} locked", (50, 230, 130) if locked_count > 0 else (160, 170, 180)),
+            ("Conveyor Motion", f"{abs(conveyor_speed):.0f} px/s", (0, 230, 255)),
+            ("Max Filter", "< 1000 mm (ON)" if filter_max_1000 else "OFF", (50, 230, 130) if filter_max_1000 else (255, 190, 50)),
+            ("CSV Logging", "Active (Daily)", (50, 230, 130)),
+        ]
+
+        y_cur = y0 + 56
+        for label, val, val_col in rows:
+            cv2.putText(frame, label, (x0 + 12, y_cur), font, 0.36, (150, 165, 180), 1, cv2.LINE_AA)
+            (tw, _), _ = cv2.getTextSize(val, font, 0.38, 1)
+            cv2.putText(frame, val, (x1 - 14 - tw, y_cur), font, 0.38, val_col, 1, cv2.LINE_AA)
+            y_cur += 25
     else:
-        y += 35
-        cv2.putText(panel, "Waiting for data...", (10, y), font, 0.55, (150, 160, 170), 1, cv2.LINE_AA)
+        cv2.putText(frame, "Waiting for video stream...", (x0 + 16, y0 + 75), font, 0.44, (140, 155, 170), 1, cv2.LINE_AA)
 
-    frame[y0:y0+panel_h, x0:x0+panel_w] = cv2.addWeighted(sub, 0.25, panel, 0.75, 0)
-    cv2.rectangle(frame, (x0, y0), (x0 + panel_w, y0 + panel_h), (60, 70, 80), 1)
     return frame
 
 
-def draw_color_legend(frame, normal_count=0, oversize_count=0):
-    """Render two-color classification legend with live counts at bottom left."""
-    h, w = frame.shape[:2]
-    if h < 60 or w < 360:
-        return frame
-
-    legend_w, legend_h = 320, 28
-    y0 = h - legend_h - 12
-    x0 = 12
-
-    legend = np.zeros((legend_h, legend_w, 3), np.uint8)
-    legend[:] = (30, 32, 36)
-
-    # Green block
-    cv2.rectangle(legend, (6, 6), (22, 22), (0, 220, 0), -1)
-    cv2.putText(legend, f"Normal: {normal_count}", (28, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (220, 230, 240), 1, cv2.LINE_AA)
-
-    # Red block
-    cv2.rectangle(legend, (135, 6), (151, 22), (0, 0, 240), -1)
-    cv2.putText(legend, f"Oversize: {oversize_count}", (157, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (220, 230, 240), 1, cv2.LINE_AA)
-
-    # Total
-    total_cnt = normal_count + oversize_count
-    cv2.putText(legend, f"Total: {total_cnt}", (255, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (0, 220, 255), 1, cv2.LINE_AA)
-
-    sub = frame[y0:y0+legend_h, x0:x0+legend_w]
-    frame[y0:y0+legend_h, x0:x0+legend_w] = cv2.addWeighted(sub, 0.25, legend, 0.75, 0)
-    cv2.rectangle(frame, (x0, y0), (x0 + legend_w, y0 + legend_h), (60, 70, 80), 1)
-    return frame
-
-
-def draw_online_status_badge(vis, cam_dev, fps, w, h, model_name="DETR"):
-    """Render prominent ONLINE camera badge at top-left of live feed."""
-    badge_w = 340
-    badge_h = 44
-    x0, y0 = 12, 12
-
-    if vis.shape[1] < badge_w + 24 or vis.shape[0] < badge_h + 24:
+def draw_bottom_ribbon(vis, normal_count=0, oversize_count=0, alarm_active=False, locked_count=0, filter_max_1000=True):
+    """Render modern docked glass status ribbons at the bottom of the feed."""
+    global GUI_MAX_FILTER_BTN_RECT
+    h, w = vis.shape[:2]
+    if h < 80 or w < 400:
         return vis
 
-    sub = vis[y0:y0+badge_h, x0:x0+badge_w]
-    bg = np.zeros_like(sub)
-    bg[:] = (20, 26, 24)
-    vis[y0:y0+badge_h, x0:x0+badge_w] = cv2.addWeighted(sub, 0.25, bg, 0.75, 0)
-    cv2.rectangle(vis, (x0, y0), (x0+badge_w, y0+badge_h), (40, 160, 60), 1)
-
-    # Glowing green indicator dot
-    cv2.circle(vis, (x0 + 18, y0 + 22), 7, (0, 220, 0), -1)
-    cv2.circle(vis, (x0 + 18, y0 + 22), 9, (0, 255, 0), 1)
-
-    # Status title
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(vis, "CAMERA ONLINE", (x0 + 34, y0 + 20), font, 0.56, (0, 255, 0), 2, cv2.LINE_AA)
+    total_cnt = normal_count + oversize_count
 
-    # Details subtitle
-    details = f"Dev: {cam_dev} | {w}x{h} | {fps:.1f} FPS | {model_name}"
-    cv2.putText(vis, details, (x0 + 34, y0 + 36), font, 0.38, (190, 220, 200), 1, cv2.LINE_AA)
+    # Left Ribbon: Classification metrics & Locked count
+    ribbon_w = 428
+    draw_glass_card(vis, (12, h - 38), (ribbon_w, h - 10), bg_color=(16, 20, 26), border_color=(55, 68, 85), radius=6)
 
-    # Quit & shortcut hint at bottom right
-    hint_text = "[+/-] Alarm Thr | [R] Reconnect | [Q/ESC] Quit"
-    cv2.putText(vis, hint_text, (vis.shape[1] - 340, vis.shape[0] - 14), font, 0.42, (150, 160, 170), 1, cv2.LINE_AA)
+    # Emerald Normal Dot
+    cv2.circle(vis, (26, h - 24), 5, (50, 230, 130), -1, cv2.LINE_AA)
+    cv2.putText(vis, f"Normal: {normal_count}", (36, h - 20), font, 0.38, (230, 240, 248), 1, cv2.LINE_AA)
+
+    # Coral Oversize Dot
+    cv2.circle(vis, (136, h - 24), 5, (45, 60, 255), -1, cv2.LINE_AA)
+    cv2.putText(vis, f"Oversize: {oversize_count}", (146, h - 20), font, 0.38, (230, 240, 248), 1, cv2.LINE_AA)
+
+    # Cyan Total Dot
+    cv2.circle(vis, (248, h - 24), 5, (255, 200, 40), -1, cv2.LINE_AA)
+    cv2.putText(vis, f"Tot: {total_cnt}", (258, h - 20), font, 0.38, (230, 240, 248), 1, cv2.LINE_AA)
+
+    # Lock-In Dot & Count
+    lock_col = (50, 230, 130) if locked_count > 0 else (120, 135, 145)
+    cv2.circle(vis, (336, h - 24), 5, lock_col, -1, cv2.LINE_AA)
+    cv2.putText(vis, f"Lock: {locked_count}", (346, h - 20), font, 0.38, lock_col, 1, cv2.LINE_AA)
+
+    # Center Filter Toggle Button: [M] Max <1m (Clickable / 'M' key)
+    btn_w = 170
+    btn_x1 = (w - btn_w) // 2
+    btn_x2 = btn_x1 + btn_w
+    btn_y1 = h - 38
+    btn_y2 = h - 10
+    GUI_MAX_FILTER_BTN_RECT = (btn_x1, btn_y1, btn_x2, btn_y2)
+
+    bg_filter = (20, 36, 26) if filter_max_1000 else (36, 30, 20)
+    border_filter = (50, 230, 130) if filter_max_1000 else (255, 190, 50)
+    draw_glass_card(vis, (btn_x1, btn_y1), (btn_x2, btn_y2), bg_color=bg_filter, border_color=border_filter, radius=6)
+    fltr_status_text = "Max <1m: ON" if filter_max_1000 else "Max <1m: OFF"
+    cv2.putText(vis, "[M]", (btn_x1 + 8, h - 20), font, 0.38, (0, 220, 255), 1, cv2.LINE_AA)
+    cv2.putText(vis, fltr_status_text, (btn_x1 + 38, h - 20), font, 0.36, (240, 245, 252), 1, cv2.LINE_AA)
+
+    # Right Ribbon: Shortcuts & CSV recording indicator
+    right_w = 410
+    draw_glass_card(vis, (w - right_w - 12, h - 38), (w - 12, h - 10), bg_color=(16, 20, 26), border_color=(55, 68, 85), radius=6)
+
+    # Pulsing CSV recording LED
+    t_pulse = time.time()
+    csv_led = (50, 230, 130) if (int(t_pulse * 2) % 2 == 0) else (30, 160, 90)
+    cv2.circle(vis, (w - right_w + 2, h - 24), 4, csv_led, -1, cv2.LINE_AA)
+    cv2.putText(vis, "CSV", (w - right_w + 12, h - 20), font, 0.36, (200, 215, 230), 1, cv2.LINE_AA)
+
+    shortcuts = [
+        ("[M]", "Fltr"),
+        ("[+/-]", "Thr"),
+        ("[R]", "Reconn"),
+        ("[Q]", "Exit"),
+    ]
+    cur_x = w - right_w + 54
+    for key_cap, act in shortcuts:
+        cv2.putText(vis, key_cap, (cur_x, h - 20), font, 0.38, (0, 220, 255), 1, cv2.LINE_AA)
+        (kw, _), _ = cv2.getTextSize(key_cap, font, 0.38, 1)
+        cur_x += kw + 4
+        cv2.putText(vis, act, (cur_x, h - 20), font, 0.36, (160, 175, 195), 1, cv2.LINE_AA)
+        (aw, _), _ = cv2.getTextSize(act, font, 0.36, 1)
+        cur_x += aw + 10
+
     return vis
 
 
-def draw_objects_badge(vis, num_objects=0, normal_count=0, oversize_count=0, x0=566, y0=12):
-    """Render prominent 'Objects Detected' counter pill on the top HUD."""
-    badge_w = 210
-    badge_h = 44
-    if vis.shape[1] < x0 + badge_w + 12 or vis.shape[0] < y0 + badge_h + 12:
+def draw_color_legend(frame, normal_count=0, oversize_count=0, locked_count=0, filter_max_1000=True):
+    """Backward compatible wrapper calling draw_bottom_ribbon."""
+    return draw_bottom_ribbon(frame, normal_count=normal_count, oversize_count=oversize_count, alarm_active=ALARM_ACTIVE,
+                              locked_count=locked_count, filter_max_1000=filter_max_1000)
+
+
+def draw_online_status_badge(vis, cam_dev, fps, w, h, model_name="DETR"):
+    """Render sleek modern status card with pulsating live indicator."""
+    badge_w, badge_h = 308, 48
+    x0, y0 = 12, 12
+    x1, y1 = x0 + badge_w, y0 + badge_h
+    if vis.shape[1] < x1 + 10 or vis.shape[0] < y1 + 10:
         return vis
 
-    sub = vis[y0:y0+badge_h, x0:x0+badge_w]
-    bg = np.zeros_like(sub)
+    font = cv2.FONT_HERSHEY_SIMPLEX
 
-    if num_objects == 0:
-        bg_col = (22, 26, 32)
-        border_col = (90, 100, 115)
-        text_title_col = (170, 180, 195)
-        text_num_col = (150, 160, 175)
-    elif oversize_count > 0:
-        bg_col = (24, 20, 36)
-        border_col = (0, 0, 240)
-        text_title_col = (255, 200, 200)
-        text_num_col = (0, 0, 255)
-    else:
-        bg_col = (20, 30, 24)
-        border_col = (0, 200, 100)
-        text_title_col = (200, 240, 210)
-        text_num_col = (0, 240, 100)
+    # Glass container card
+    draw_glass_card(vis, (x0, y0), (x1, y1), bg_color=(16, 20, 26), border_color=(45, 120, 70), radius=8)
 
-    bg[:] = bg_col
-    vis[y0:y0+badge_h, x0:x0+badge_w] = cv2.addWeighted(sub, 0.25, bg, 0.75, 0)
-    cv2.rectangle(vis, (x0, y0), (x0+badge_w, y0+badge_h), border_col, 1)
+    # Pulsing glowing LED dot
+    t_pulse = time.time()
+    glow_r = int(7 + 1.5 * math.sin(t_pulse * 4.0))
+    cv2.circle(vis, (x0 + 18, y0 + 24), glow_r, (40, 180, 80), -1, cv2.LINE_AA)
+    cv2.circle(vis, (x0 + 18, y0 + 24), 5, (50, 240, 130), -1, cv2.LINE_AA)
+    cv2.circle(vis, (x0 + 18, y0 + 24), glow_r + 2, (70, 255, 160), 1, cv2.LINE_AA)
 
-    # Box icon
-    ix, iy = x0 + 14, y0 + 15
-    cv2.rectangle(vis, (ix, iy), (ix + 16, iy + 14), text_num_col, 1)
-    cv2.line(vis, (ix + 4, iy + 4), (ix + 12, iy + 4), text_num_col, 1)
+    # Title & live tag
+    cv2.putText(vis, "WOOD-CHIP AI", (x0 + 36, y0 + 20), font, 0.48, (245, 248, 252), 2, cv2.LINE_AA)
+
+    # Mini LIVE badge
+    draw_rounded_rect(vis, (x0 + 162, y0 + 8), (x0 + 218, y0 + 24), (20, 42, 28), -1, radius=3)
+    draw_rounded_rect(vis, (x0 + 162, y0 + 8), (x0 + 218, y0 + 24), (50, 220, 110), 1, radius=3)
+    cv2.putText(vis, "ONLINE", (x0 + 169, y0 + 20), font, 0.35, (50, 230, 120), 1, cv2.LINE_AA)
+
+    # Subtitle details
+    details = f"CAM {cam_dev}  |  {w}x{h}  |  {fps:.1f} FPS  |  {model_name}"
+    cv2.putText(vis, details, (x0 + 36, y0 + 38), font, 0.34, (160, 175, 195), 1, cv2.LINE_AA)
+    return vis
+
+
+def draw_objects_badge(vis, num_objects=0, normal_count=0, oversize_count=0, locked_count=0, x0=524, y0=12):
+    """Render modern 'Objects Detected' telemetry capsule on the top HUD."""
+    badge_w, badge_h = 210, 48
+    x1, y1 = x0 + badge_w, y0 + badge_h
+    if vis.shape[1] < x1 + 10 or vis.shape[0] < y1 + 10:
+        return vis
 
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(vis, "OBJECTS DETECTED", (x0 + 38, y0 + 18), font, 0.44, text_title_col, 1, cv2.LINE_AA)
-    cv2.putText(vis, f"Count: {num_objects}  ({normal_count} norm, {oversize_count} over)", (x0 + 38, y0 + 35), font, 0.36, text_num_col, 1, cv2.LINE_AA)
+    border_col = (45, 60, 255) if oversize_count > 0 else (60, 75, 95)
+    draw_glass_card(vis, (x0, y0), (x1, y1), bg_color=(16, 20, 26), border_color=border_col, radius=8)
+
+    # 3D isometric cube vector icon
+    ix, iy = x0 + 12, y0 + 12
+    cv2.rectangle(vis, (ix, iy), (ix + 12, iy + 10), (50, 230, 130), 1, cv2.LINE_AA)
+    cv2.line(vis, (ix + 3, iy - 3), (ix + 15, iy - 3), (50, 230, 130), 1, cv2.LINE_AA)
+    cv2.line(vis, (ix + 12, iy), (ix + 15, iy - 3), (50, 230, 130), 1, cv2.LINE_AA)
+    cv2.line(vis, (ix, iy), (ix + 3, iy - 3), (50, 230, 130), 1, cv2.LINE_AA)
+
+    header_text = f"OBJECTS ({locked_count} LKD)" if locked_count > 0 else "OBJECTS DETECTED"
+    cv2.putText(vis, header_text, (x0 + 32, y0 + 17), font, 0.35, (50, 230, 130) if locked_count > 0 else (170, 185, 200), 1, cv2.LINE_AA)
+
+    # Count display
+    cv2.putText(vis, f"{num_objects}", (x0 + 10, y0 + 39), font, 0.54, (250, 252, 255), 2, cv2.LINE_AA)
+    cv2.putText(vis, "chips", (x0 + 44, y0 + 38), font, 0.33, (140, 155, 175), 1, cv2.LINE_AA)
+
+    # Normal count pill [N: X]
+    draw_rounded_rect(vis, (x0 + 96, y0 + 24), (x0 + 150, y0 + 44), (20, 36, 26), -1, radius=4)
+    draw_rounded_rect(vis, (x0 + 96, y0 + 24), (x0 + 150, y0 + 44), (50, 200, 100), 1, radius=4)
+    cv2.putText(vis, f"N: {normal_count}", (x0 + 102, y0 + 38), font, 0.36, (50, 230, 130), 1, cv2.LINE_AA)
+
+    # Oversize count pill [O: Y]
+    o_bg = (38, 20, 26) if oversize_count > 0 else (26, 28, 34)
+    o_border = (45, 60, 255) if oversize_count > 0 else (75, 85, 100)
+    o_text_col = (45, 60, 255) if oversize_count > 0 else (160, 170, 180)
+    draw_rounded_rect(vis, (x0 + 154, y0 + 24), (x0 + 204, y0 + 44), o_bg, -1, radius=4)
+    draw_rounded_rect(vis, (x0 + 154, y0 + 24), (x0 + 204, y0 + 44), o_border, 1, radius=4)
+    cv2.putText(vis, f"O: {oversize_count}", (x0 + 160, y0 + 38), font, 0.36, o_text_col, 1, cv2.LINE_AA)
+
     return vis
 
 
@@ -708,6 +832,7 @@ GUI_MOUSE_CLICKED = False
 GUI_RECONNECT_BTN_RECT = None
 GUI_THRESH_MINUS_RECT = None
 GUI_THRESH_PLUS_RECT = None
+GUI_MAX_FILTER_BTN_RECT = None
 GUI_RECONNECTING_UNTIL = 0.0
 
 
@@ -748,172 +873,521 @@ def _sync_trackbars(window_name, can_show_gui):
         pass
 
 
-def draw_threshold_widget(vis, threshold_val=60.0, conf_val=0.5, x0=788, y0=12, is_hover_minus=False, is_hover_plus=False):
-    """
-    Render modern, interactive 'Alarm Threshold' adjustment widget on the top HUD.
-    Includes clickable [-] and [+] buttons, current mm value, and fine adjustment hint.
-    """
-    badge_w = 190
-    badge_h = 44
-    if vis.shape[1] < x0 + badge_w + 10 or vis.shape[0] < y0 + badge_h + 10:
+def draw_threshold_widget(vis, threshold_val=60.0, conf_val=0.5, x0=746, y0=12, is_hover_minus=False, is_hover_plus=False):
+    """Render modern interactive alarm threshold stepper with glass card and keycaps."""
+    badge_w, badge_h = 240, 48
+    x1, y1 = x0 + badge_w, y0 + badge_h
+    if vis.shape[1] < x1 + 10 or vis.shape[0] < y1 + 10:
         return vis
 
-    sub = vis[y0:y0+badge_h, x0:x0+badge_w]
-    bg = np.zeros_like(sub)
-    bg[:] = (24, 26, 32)
-    vis[y0:y0+badge_h, x0:x0+badge_w] = cv2.addWeighted(sub, 0.25, bg, 0.75, 0)
-    cv2.rectangle(vis, (x0, y0), (x0+badge_w, y0+badge_h), (80, 100, 120), 1)
-
     font = cv2.FONT_HERSHEY_SIMPLEX
+    draw_glass_card(vis, (x0, y0), (x1, y1), bg_color=(16, 20, 26), border_color=(60, 75, 95), radius=8)
 
-    # Title label
-    cv2.putText(vis, "ALARM THRESHOLD", (x0 + 10, y0 + 15), font, 0.38, (175, 190, 205), 1, cv2.LINE_AA)
+    # Header row
+    cv2.putText(vis, "ALARM THRESHOLD", (x0 + 10, y0 + 15), font, 0.36, (170, 185, 200), 1, cv2.LINE_AA)
+    cv2.putText(vis, "[+/-5]", (x1 - 44, y0 + 15), font, 0.32, (120, 140, 160), 1, cv2.LINE_AA)
 
     # Minus Button [-]
-    m_x1, m_y1, m_x2, m_y2 = x0 + 8, y0 + 20, x0 + 36, y0 + 39
-    m_bg = (55, 65, 80) if is_hover_minus else (32, 38, 48)
-    m_border = (255, 200, 50) if is_hover_minus else (100, 120, 140)
-    cv2.rectangle(vis, (m_x1, m_y1), (m_x2, m_y2), m_bg, -1)
-    cv2.rectangle(vis, (m_x1, m_y1), (m_x2, m_y2), m_border, 1)
-    cv2.line(vis, (m_x1 + 6, m_y1 + 9), (m_x2 - 6, m_y1 + 9), (255, 255, 255), 2, cv2.LINE_AA)
+    m_x1, m_y1, m_x2, m_y2 = x0 + 10, y0 + 21, x0 + 44, y0 + 43
+    m_bg = (48, 58, 72) if is_hover_minus else (30, 36, 46)
+    m_border = (255, 190, 50) if is_hover_minus else (80, 100, 125)
+    draw_rounded_rect(vis, (m_x1, m_y1), (m_x2, m_y2), m_bg, -1, radius=4)
+    draw_rounded_rect(vis, (m_x1, m_y1), (m_x2, m_y2), m_border, 1, radius=4)
+    cv2.line(vis, (m_x1 + 8, m_y1 + 11), (m_x2 - 8, m_y1 + 11), (255, 255, 255), 2, cv2.LINE_AA)
 
     # Threshold Value Display
     val_str = f"{threshold_val:.0f} mm"
-    cv2.putText(vis, val_str, (x0 + 44, y0 + 35), font, 0.48, (0, 225, 255), 1, cv2.LINE_AA)
+    cv2.putText(vis, val_str, (x0 + 52, y0 + 37), font, 0.52, (0, 230, 255), 2, cv2.LINE_AA)
 
     # Plus Button [+]
-    p_x1, p_y1, p_x2, p_y2 = x0 + 118, y0 + 20, x0 + 146, y0 + 39
-    p_bg = (55, 65, 80) if is_hover_plus else (32, 38, 48)
-    p_border = (255, 200, 50) if is_hover_plus else (100, 120, 140)
-    cv2.rectangle(vis, (p_x1, p_y1), (p_x2, p_y2), p_bg, -1)
-    cv2.rectangle(vis, (p_x1, p_y1), (p_x2, p_y2), p_border, 1)
-    cv2.line(vis, (p_x1 + 6, p_y1 + 9), (p_x2 - 6, p_y1 + 9), (255, 255, 255), 2, cv2.LINE_AA)
-    cv2.line(vis, (p_x1 + 14, p_y1 + 3), (p_x1 + 14, p_y2 - 3), (255, 255, 255), 2, cv2.LINE_AA)
+    p_x1, p_y1, p_x2, p_y2 = x0 + 144, y0 + 21, x0 + 178, y0 + 43
+    p_bg = (48, 58, 72) if is_hover_plus else (30, 36, 46)
+    p_border = (255, 190, 50) if is_hover_plus else (80, 100, 125)
+    draw_rounded_rect(vis, (p_x1, p_y1), (p_x2, p_y2), p_bg, -1, radius=4)
+    draw_rounded_rect(vis, (p_x1, p_y1), (p_x2, p_y2), p_border, 1, radius=4)
+    cv2.line(vis, (p_x1 + 8, p_y1 + 11), (p_x2 - 8, p_y1 + 11), (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.line(vis, (p_x1 + 17, p_y1 + 4), (p_x1 + 17, p_y2 - 4), (255, 255, 255), 2, cv2.LINE_AA)
 
-    # Step label hint
-    cv2.putText(vis, "+/-5", (x0 + 152, y0 + 34), font, 0.35, (130, 145, 160), 1, cv2.LINE_AA)
+    # Keycap hint
+    cv2.putText(vis, "1mm: [ / ]", (x0 + 185, y0 + 35), font, 0.32, (130, 145, 165), 1, cv2.LINE_AA)
     return vis
 
 
 def draw_reconnect_button(frame, rect, is_hover=False, is_reconnecting=False):
-    """
-    Render modern, interactive 'Reconnect Camera' button with hover and active states.
-    """
+    """Render modern interactive reconnect button with glass styling and keycap badge."""
     x1, y1, x2, y2 = rect
     btn_w = x2 - x1
     btn_h = y2 - y1
-
     if x2 > frame.shape[1] or y2 > frame.shape[0] or x1 < 0 or y1 < 0:
         return frame
 
-    sub = frame[y1:y2, x1:x2]
-    overlay = np.zeros_like(sub)
+    font = cv2.FONT_HERSHEY_SIMPLEX
 
     if is_reconnecting:
-        bg_col = (25, 45, 65)
-        border_col = (0, 200, 255)
-        text_col = (0, 220, 255)
+        bg_col = (24, 38, 54)
+        border_col = (255, 200, 40)
+        text_col = (255, 220, 80)
         text = "Reconnecting..."
     elif is_hover:
-        bg_col = (45, 55, 75)
+        bg_col = (34, 44, 58)
         border_col = (255, 190, 50)
-        text_col = (255, 230, 120)
-        text = "Reconnect Camera (R)" if btn_w > 200 else "Reconnect (R)"
+        text_col = (255, 235, 150)
+        text = "Reconnect"
     else:
-        bg_col = (24, 30, 38)
-        border_col = (110, 130, 150)
-        text_col = (210, 220, 230)
-        text = "Reconnect Camera (R)" if btn_w > 200 else "Reconnect (R)"
+        bg_col = (18, 22, 28)
+        border_col = (65, 80, 100)
+        text_col = (230, 240, 250)
+        text = "Reconnect"
 
-    overlay[:] = bg_col
-    frame[y1:y2, x1:x2] = cv2.addWeighted(sub, 0.25, overlay, 0.75, 0)
-    cv2.rectangle(frame, (x1, y1), (x2, y2), border_col, 2 if is_hover else 1)
+    draw_glass_card(frame, (x1, y1), (x2, y2), bg_color=bg_col, border_color=border_col, radius=8)
 
-    # Draw circular refresh arrow icon
+    # Sync circular arrow
     cx = x1 + 18
     cy = y1 + btn_h // 2
     r = 7
-    cv2.ellipse(frame, (cx, cy), (r, r), 0, -45, 225, text_col, 2, cv2.LINE_AA)
-    rad = math.radians(-45)
-    ax = int(cx + r * math.cos(rad))
-    ay = int(cy + r * math.sin(rad))
-    cv2.line(frame, (ax, ay), (ax + 3, ay - 3), text_col, 2, cv2.LINE_AA)
-    cv2.line(frame, (ax, ay), (ax - 3, ay - 2), text_col, 2, cv2.LINE_AA)
+    if is_reconnecting:
+        t_spin = time.time() * 360.0
+        cv2.ellipse(frame, (cx, cy), (r, r), t_spin, 0, 270, text_col, 2, cv2.LINE_AA)
+    else:
+        cv2.ellipse(frame, (cx, cy), (r, r), 0, -45, 225, text_col, 2, cv2.LINE_AA)
+        rad = math.radians(-45)
+        ax = int(cx + r * math.cos(rad))
+        ay = int(cy + r * math.sin(rad))
+        cv2.line(frame, (ax, ay), (ax + 3, ay - 3), text_col, 2, cv2.LINE_AA)
+        cv2.line(frame, (ax, ay), (ax - 3, ay - 2), text_col, 2, cv2.LINE_AA)
+
+    # Button label
+    cv2.putText(frame, text, (x1 + 33, y1 + btn_h // 2 + 5), font, 0.44, text_col, 1, cv2.LINE_AA)
+
+    # Keycap badge [ R ]
+    if not is_reconnecting and btn_w >= 160:
+        draw_rounded_rect(frame, (x2 - 38, y1 + 14), (x2 - 12, y1 + 34), (30, 36, 46), -1, radius=4)
+        draw_rounded_rect(frame, (x2 - 38, y1 + 14), (x2 - 12, y1 + 34), border_col, 1, radius=4)
+        cv2.putText(frame, "R", (x2 - 29, y1 + 28), font, 0.38, (0, 230, 255) if not is_hover else (255, 230, 100), 1, cv2.LINE_AA)
+
+    return frame
+
+
+def draw_alarm_banner(vis, max_d_mm=None, threshold_mm=60.0):
+    """Render high-visibility warning banner when oversize chip alarm triggers."""
+    w = vis.shape[1]
+    banner_w = min(660, w - 24)
+    banner_h = 32
+    x0 = (w - banner_w) // 2
+    y0 = 68
+    x1, y1 = x0 + banner_w, y0 + banner_h
+
+    draw_glass_card(vis, (x0, y0), (x1, y1), bg_color=(36, 16, 24), border_color=(45, 60, 255), alpha=0.92, radius=6)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.46 if btn_w > 200 else 0.42
-    cv2.putText(frame, text, (x1 + 32, y1 + btn_h // 2 + 5), font, font_scale, text_col, 1, cv2.LINE_AA)
-    return frame
+    # Warning icon
+    cv2.putText(vis, "!", (x0 + 14, y0 + 22), font, 0.50, (45, 60, 255), 2, cv2.LINE_AA)
+    cv2.circle(vis, (x0 + 17, y0 + 16), 11, (45, 60, 255), 1, cv2.LINE_AA)
+
+    max_str = f"{max_d_mm:.1f} mm" if max_d_mm is not None else "> limit"
+    msg = f"OVERSIZE CHIP DETECTED (Max: {max_str} > Limit: {threshold_mm:.0f} mm) - SORTING ALERT"
+    cv2.putText(vis, msg, (x0 + 36, y0 + 21), font, 0.40, (255, 235, 130), 1, cv2.LINE_AA)
+    return vis
 
 
 def create_offline_frame(width=1280, height=720, cam_dev=0, reconnect_interval=2.0):
     """
-    Generate modern industrial offline slate when camera is unplugged or disconnected.
-    Always valid, self-contained, and animated over time.
+    Generate futuristic high-aesthetic standby slate when camera is disconnected.
+    Features subtle tech grid, glowing radar aperture, and animated scanning sweeps.
     """
     frame = np.zeros((height, width, 3), dtype=np.uint8)
-    frame[:] = (26, 22, 20)  # Dark slate background
+    frame[:] = (18, 20, 25)  # Obsidian slate base
+
+    # Subtle background tech grid
+    grid_color = (25, 28, 36)
+    for gx in range(0, width, 60):
+        cv2.line(frame, (gx, 0), (gx, height), grid_color, 1)
+    for gy in range(0, height, 60):
+        cv2.line(frame, (0, gy), (width, gy), grid_color, 1)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
 
-    # Top header bar
-    cv2.rectangle(frame, (0, 0), (width, 50), (36, 30, 28), -1)
-    cv2.line(frame, (0, 50), (width, 50), (55, 48, 44), 1)
-    cv2.putText(frame, "WOOD-CHIP MONITOR - LIVE TRACKING", (20, 32), font, 0.68, (220, 225, 230), 2, cv2.LINE_AA)
+    # Top glass header bar
+    draw_glass_card(frame, (0, 0), (width, 50), bg_color=(15, 18, 24), border_color=(45, 55, 70), alpha=0.90, radius=0)
+    cv2.putText(frame, "WOOD-CHIP MONITOR", (20, 32), font, 0.62, (245, 248, 252), 2, cv2.LINE_AA)
 
-    # OS / Platform badge
-    os_info = f"OS: {platform.system()} | Target Dev: {cam_dev}"
-    cv2.putText(frame, os_info, (width - 280, 32), font, 0.46, (160, 170, 180), 1, cv2.LINE_AA)
+    # Sub-tag [ SYSTEM STANDBY ]
+    draw_rounded_rect(frame, (230, 16), (360, 36), (32, 24, 20), -1, radius=4)
+    draw_rounded_rect(frame, (230, 16), (360, 36), (30, 195, 255), 1, radius=4)
+    cv2.putText(frame, "STANDBY", (242, 31), font, 0.38, (30, 195, 255), 1, cv2.LINE_AA)
+
+    # Target info on right
+    os_info = f"OS: {platform.system()}  |  TARGET: {cam_dev}"
+    cv2.putText(frame, os_info, (width - 290, 32), font, 0.44, (160, 170, 195), 1, cv2.LINE_AA)
 
     cx = width // 2
     cy = height // 2 - 40
 
-    # Draw stylized camera icon with OpenCV shapes
-    body_w, body_h = 120, 76
+    # Animated radar scan rings
+    now = time.time()
+    for r_ring in [85, 60, 35]:
+        cv2.circle(frame, (cx, cy), r_ring, (38, 44, 56), 1, cv2.LINE_AA)
+
+    # Rotating radar sweep ray
+    sweep_angle = (now * 1.8) % (2 * math.pi)
+    ray_x = int(cx + 85 * math.cos(sweep_angle))
+    ray_y = int(cy + 85 * math.sin(sweep_angle))
+    cv2.line(frame, (cx, cy), (ray_x, ray_y), (60, 95, 135), 1, cv2.LINE_AA)
+
+    # Camera body graphic
+    body_w, body_h = 100, 64
     bx1, by1 = cx - body_w // 2, cy - body_h // 2
     bx2, by2 = cx + body_w // 2, cy + body_h // 2
-
-    # Camera body
-    cv2.rectangle(frame, (bx1, by1), (bx2, by2), (60, 65, 75), -1)
-    cv2.rectangle(frame, (bx1, by1), (bx2, by2), (110, 120, 135), 2)
-    # Viewfinder bump
-    cv2.rectangle(frame, (cx - 20, by1 - 12), (cx + 20, by1), (75, 80, 90), -1)
+    draw_glass_card(frame, (bx1, by1), (bx2, by2), bg_color=(25, 30, 38), border_color=(75, 90, 110), radius=8)
     # Lens
-    cv2.circle(frame, (cx, cy), 26, (35, 38, 44), -1)
-    cv2.circle(frame, (cx, cy), 26, (120, 130, 145), 2)
-    cv2.circle(frame, (cx, cy), 14, (20, 22, 26), -1)
-    # Red diagonal line indicating disconnected
-    cv2.line(frame, (bx1 - 8, by2 + 8), (bx2 + 8, by1 - 8), (0, 0, 230), 4, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), 22, (20, 24, 30), -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), 22, (100, 115, 135), 2, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), 12, (12, 14, 18), -1, cv2.LINE_AA)
+    # Red diagonal disconnect slash
+    cv2.line(frame, (bx1 - 6, by2 + 6), (bx2 + 6, by1 - 6), (45, 60, 255), 3, cv2.LINE_AA)
 
-    # Prominent CAMERA OFFLINE badge
-    badge_w = 300
-    badge_h = 44
+    # Status badge: CAMERA SIGNAL OFFLINE
+    badge_w, badge_h = 320, 42
     bx = (width - badge_w) // 2
-    by = cy + 65
-    cv2.rectangle(frame, (bx, by), (bx + badge_w, by + badge_h), (32, 18, 18), -1)
-    cv2.rectangle(frame, (bx, by), (bx + badge_w, by + badge_h), (0, 0, 220), 2)
+    by = cy + 64
+    draw_glass_card(frame, (bx, by), (bx + badge_w, by + badge_h), bg_color=(36, 18, 24), border_color=(45, 60, 255), radius=6)
+    cv2.circle(frame, (bx + 22, by + 21), 6, (45, 60, 255), -1, cv2.LINE_AA)
+    cv2.circle(frame, (bx + 22, by + 21), 9, (70, 90, 255), 1, cv2.LINE_AA)
+    cv2.putText(frame, "CAMERA SIGNAL OFFLINE", (bx + 38, by + 27), font, 0.58, (45, 60, 255), 2, cv2.LINE_AA)
 
-    # Glowing red indicator dot
-    cv2.circle(frame, (bx + 24, by + 22), 8, (0, 0, 230), -1)
-    cv2.circle(frame, (bx + 24, by + 22), 10, (0, 0, 255), 1)
-    cv2.putText(frame, "CAMERA OFFLINE", (bx + 44, by + 29), font, 0.76, (0, 0, 255), 2, cv2.LINE_AA)
-
-    # Status explanations with dynamic animated dots
-    now = time.time()
+    # Dynamic status line with dots
     dot_count = int(now * 2) % 4
     dots = "." * dot_count + " " * (3 - dot_count)
+    msg1 = f"Camera device '{cam_dev}' is disconnected or not detected."
+    msg2 = f"Searching for video stream{dots} (auto-polling every {reconnect_interval:.1f}s)"
+    msg3 = "Please plug in your camera. Live video feed will start automatically."
 
-    msg1 = f"Camera device '{cam_dev}' is disconnected or not plugged in."
-    msg2 = f"Searching for connected cameras{dots} (auto-polling every {reconnect_interval:.1f}s)"
-    msg3 = "Please plug in your USB camera. Live video feed will start automatically."
-    msg4 = "[+/-] Adjust Threshold | [R] Reconnect Camera | [Q/ESC] Quit"
-
-    cv2.putText(frame, msg1, (cx - int(len(msg1) * 4.6), by + 75), font, 0.54, (200, 205, 215), 1, cv2.LINE_AA)
-    cv2.putText(frame, msg2, (cx - int(len(msg2) * 4.2), by + 105), font, 0.50, (100, 185, 255), 1, cv2.LINE_AA)
-    cv2.putText(frame, msg3, (cx - int(len(msg3) * 4.4), by + 138), font, 0.52, (150, 220, 160), 1, cv2.LINE_AA)
-    cv2.putText(frame, msg4, (cx - int(len(msg4) * 3.8), height - 24), font, 0.44, (140, 150, 165), 1, cv2.LINE_AA)
+    cv2.putText(frame, msg1, (cx - int(len(msg1) * 4.6), by + 70), font, 0.50, (210, 220, 230), 1, cv2.LINE_AA)
+    cv2.putText(frame, msg2, (cx - int(len(msg2) * 4.2), by + 98), font, 0.48, (0, 220, 255), 1, cv2.LINE_AA)
+    cv2.putText(frame, msg3, (cx - int(len(msg3) * 4.4), by + 128), font, 0.46, (140, 220, 160), 1, cv2.LINE_AA)
 
     return frame
+
+
+# =================== CONVEYOR MOTION TRACKER & CSV LOGGER ===================
+def _resolve_csv_dir() -> str:
+    """Return working directory or configured output directory for wood chip CSV logs."""
+    env_dir = os.environ.get("WOODCHIP_CSV_DIR")
+    if env_dir and os.path.exists(env_dir):
+        return env_dir
+    return os.getcwd()
+
+
+class TrackedChip:
+    """
+    Represents an individual physical wood chip moving on a high-speed conveyor belt.
+    Maintains persistent track ID, smoothed coordinates, motion velocity vector,
+    size measurements, and lock status.
+    """
+    def __init__(self, track_id: int, box: np.ndarray, score: float, d_val: float,
+                 L_val: float, W_val: float, velocity=(0.0, 0.0), moisture="N/A"):
+        self.track_id = int(track_id)
+        self.box = np.array(box, dtype=np.float32)  # [x1, y1, x2, y2]
+        self.score = float(score)
+        self.d_val = float(d_val)
+        self.L_val = float(L_val)
+        self.W_val = float(W_val)
+        self.vx = float(velocity[0])  # pixels / second along X
+        self.vy = float(velocity[1])  # pixels / second along Y
+        self.moisture = str(moisture)
+        self.hits = 1
+        self.age = 1
+        self.time_since_update = 0
+        self.locked = False
+        self.last_update_ts = time.time()
+        self.last_csv_log_ts = 0.0
+
+        cx = (self.box[0] + self.box[2]) / 2.0
+        cy = (self.box[1] + self.box[3]) / 2.0
+        self.history = deque(maxlen=15)
+        self.history.append((cx, cy, self.last_update_ts))
+
+    @property
+    def centroid(self) -> Tuple[float, float]:
+        return ((self.box[0] + self.box[2]) / 2.0, (self.box[1] + self.box[3]) / 2.0)
+
+    @property
+    def speed_px_s(self) -> float:
+        return math.hypot(self.vx, self.vy)
+
+    def predict(self, dt: float):
+        """Propagate bounding box forward using estimated conveyor velocity."""
+        if dt > 0:
+            dx = self.vx * dt
+            dy = self.vy * dt
+            self.box[0] += dx
+            self.box[2] += dx
+            self.box[1] += dy
+            self.box[3] += dy
+            cx, cy = self.centroid
+            self.history.append((cx, cy, time.time()))
+        self.time_since_update += 1
+        self.age += 1
+
+    def update(self, det_box: np.ndarray, score: float, d_val: float, L_val: float, W_val: float, dt: float, moisture="N/A"):
+        """Update track state when detection matches."""
+        now = time.time()
+        prev_cx, prev_cy = self.centroid
+        new_cx = (det_box[0] + det_box[2]) / 2.0
+        new_cy = (det_box[1] + det_box[3]) / 2.0
+
+        if dt > 0.001:
+            inst_vx = (new_cx - prev_cx) / dt
+            inst_vy = (new_cy - prev_cy) / dt
+            alpha_v = 0.4
+            self.vx = (1.0 - alpha_v) * self.vx + alpha_v * inst_vx
+            self.vy = (1.0 - alpha_v) * self.vy + alpha_v * inst_vy
+
+        # Smooth position and size
+        alpha_pos = 0.6
+        self.box = (1.0 - alpha_pos) * self.box + alpha_pos * det_box
+        self.score = float(score)
+
+        alpha_d = 0.35
+        self.d_val = (1.0 - alpha_d) * self.d_val + alpha_d * float(d_val)
+        self.L_val = (1.0 - alpha_d) * self.L_val + alpha_d * float(L_val)
+        self.W_val = (1.0 - alpha_d) * self.W_val + alpha_d * float(W_val)
+
+        if moisture and moisture != "N/A":
+            self.moisture = str(moisture)
+
+        self.hits += 1
+        self.time_since_update = 0
+        self.last_update_ts = now
+        if self.hits >= TRACKER_MIN_HITS_TO_LOCK:
+            self.locked = True
+
+        cx, cy = self.centroid
+        self.history.append((cx, cy, now))
+
+
+class ConveyorLockTracker:
+    """
+    Multi-object motion tracker engineered for high-speed conveyor belt operations.
+    Maintains persistent tracks, estimates bulk conveyor velocity, handles high-speed motion compensation,
+    and locks onto wood chips across successive frames.
+    """
+    def __init__(self, max_match_dist=180.0, max_lost_frames=8):
+        self.max_match_dist = max_match_dist
+        self.max_lost_frames = max_lost_frames
+        self.tracks: List[TrackedChip] = []
+        self.next_id = 1
+        self.bulk_conveyor_vx = 0.0  # Estimated belt speed in px/s
+        self.bulk_conveyor_vy = 0.0
+        self.last_t = time.time()
+
+    @property
+    def bulk_speed_px_s(self) -> float:
+        return math.hypot(self.bulk_conveyor_vx, self.bulk_conveyor_vy)
+
+    def step(self, det_boxes: np.ndarray, det_scores: np.ndarray,
+             det_L: np.ndarray, det_W: np.ndarray, det_D: np.ndarray,
+             moistures: list = None, frame_w: int = 1280, frame_h: int = 720) -> List[TrackedChip]:
+        now = time.time()
+        dt = max(0.001, min(0.5, now - self.last_t))
+        self.last_t = now
+
+        # 1. Predict position for all active tracks using velocity model
+        for trk in self.tracks:
+            trk.predict(dt)
+
+        # 2. Association between predicted tracks and newly detected boxes
+        N_det = len(det_boxes) if det_boxes is not None else 0
+        N_trk = len(self.tracks)
+
+        matched_tracks = set()
+        matched_dets = set()
+
+        if N_trk > 0 and N_det > 0:
+            # Build cost matrix based on Euclidean distance & IOU
+            cost_matrix = np.zeros((N_trk, N_det), dtype=np.float32)
+            for i, trk in enumerate(self.tracks):
+                tcx, tcy = trk.centroid
+                tb = trk.box
+                for j in range(N_det):
+                    db = det_boxes[j]
+                    dcx = (db[0] + db[2]) / 2.0
+                    dcy = (db[1] + db[3]) / 2.0
+                    dist = math.hypot(tcx - dcx, tcy - dcy)
+
+                    # Calculate IOU
+                    ix1 = max(tb[0], db[0])
+                    iy1 = max(tb[1], db[1])
+                    ix2 = min(tb[2], db[2])
+                    iy2 = min(tb[3], db[3])
+                    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+                    area_t = max(1.0, (tb[2] - tb[0]) * (tb[3] - tb[1]))
+                    area_d = max(1.0, (db[2] - db[0]) * (db[3] - db[1]))
+                    iou = inter / (area_t + area_d - inter + 1e-6)
+
+                    # Primary metric: distance minus IOU bonus
+                    cost_matrix[i, j] = dist - (80.0 * iou)
+
+            # Greedy bipartite matching
+            for _ in range(min(N_trk, N_det)):
+                min_val = np.min(cost_matrix)
+                if min_val > self.max_match_dist:
+                    break
+                trk_idx, det_idx = np.unravel_index(np.argmin(cost_matrix), cost_matrix.shape)
+                if cost_matrix[trk_idx, det_idx] >= 1e5:
+                    break
+
+                matched_tracks.add(trk_idx)
+                matched_dets.add(det_idx)
+
+                # Update matched track
+                m_label = moistures[det_idx] if moistures and det_idx < len(moistures) else "N/A"
+                self.tracks[trk_idx].update(
+                    det_boxes[det_idx], det_scores[det_idx],
+                    det_D[det_idx], det_L[det_idx], det_W[det_idx],
+                    dt, moisture=m_label
+                )
+
+                # Invalidate row and column
+                cost_matrix[trk_idx, :] = 1e6
+                cost_matrix[:, det_idx] = 1e6
+
+        # 3. Create new tracks for unmatched detections
+        for j in range(N_det):
+            if j not in matched_dets:
+                m_label = moistures[j] if moistures and j < len(moistures) else "N/A"
+                new_trk = TrackedChip(
+                    track_id=self.next_id,
+                    box=det_boxes[j],
+                    score=det_scores[j],
+                    d_val=det_D[j],
+                    L_val=det_L[j],
+                    W_val=det_W[j],
+                    velocity=(self.bulk_conveyor_vx, self.bulk_conveyor_vy),
+                    moisture=m_label
+                )
+                self.next_id += 1
+                self.tracks.append(new_trk)
+
+        # 4. Clean up tracks (out of bounds or lost too long)
+        surviving_tracks = []
+        margin = 60
+        for trk in self.tracks:
+            if trk.time_since_update > self.max_lost_frames:
+                continue
+            b = trk.box
+            if b[2] < -margin or b[0] > frame_w + margin or b[3] < -margin or b[1] > frame_h + margin:
+                continue
+            surviving_tracks.append(trk)
+        self.tracks = surviving_tracks
+
+        # 5. Update bulk conveyor velocity estimate from locked tracks
+        locked_vels_x = [t.vx for t in self.tracks if t.locked and abs(t.vx) > 1.0]
+        locked_vels_y = [t.vy for t in self.tracks if t.locked and abs(t.vy) > 1.0]
+        if locked_vels_x:
+            self.bulk_conveyor_vx = float(np.median(locked_vels_x))
+        if locked_vels_y:
+            self.bulk_conveyor_vy = float(np.median(locked_vels_y))
+
+        return self.tracks
+
+
+class WoodChipCSVLogger:
+    """
+    High-performance, asynchronous CSV logger for wood chip monitoring and sorting.
+    Rotates daily into 'YYYYMMDD_woodChips.csv'. Writes in a non-blocking background thread
+    so video capture and inference never stall on file I/O.
+    """
+    def __init__(self, out_dir=None, throttle_sec=0.25):
+        self.out_dir = out_dir if out_dir else os.getcwd()
+        self.throttle_sec = throttle_sec
+        self.queue = queue.Queue(maxsize=10000)
+        self.current_date_str = ""
+        self.current_file_path = ""
+        self.running = True
+        self.fieldnames = [
+            "time",
+            "detected_object_index",
+            "track_id",
+            "estimated_size_mm",
+            "threshold_size_mm",
+            "threshold_status",
+            "moisture_level",
+            "length_mm",
+            "width_mm",
+            "aspect_ratio",
+            "confidence",
+            "conveyor_speed_px_s",
+            "conveyor_speed_mm_s",
+            "bbox_x1",
+            "bbox_y1",
+            "bbox_x2",
+            "bbox_y2",
+            "batch_quality"
+        ]
+
+        self.worker_thread = threading.Thread(target=self._worker, daemon=True)
+        self.worker_thread.start()
+
+    def _ensure_file(self):
+        """Check for daily rotation (yyyymmdd_woodChips.csv)."""
+        date_str = datetime.now().strftime("%Y%m%d")
+        if date_str != self.current_date_str:
+            self.current_date_str = date_str
+            filename = f"{date_str}_woodChips.csv"
+            self.current_file_path = os.path.join(self.out_dir, filename)
+            file_exists = os.path.exists(self.current_file_path)
+            if not file_exists:
+                try:
+                    with open(self.current_file_path, "w", newline="", encoding="utf-8") as f:
+                        writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+                        writer.writeheader()
+                    print(f"[motionTracking] Daily CSV log initialized: {self.current_file_path}", flush=True)
+                except Exception as e:
+                    print(f"[motionTracking] Error creating CSV file {self.current_file_path}: {e}", flush=True)
+
+    def log_detection(self, row_dict: dict):
+        """Enqueue row for non-blocking background write."""
+        if not self.running:
+            return
+        try:
+            self.queue.put_nowait(row_dict)
+        except queue.Full:
+            pass  # Avoid blocking pipeline if queue full
+
+    def _worker(self):
+        while self.running:
+            try:
+                batch = []
+                item = self.queue.get(timeout=0.5)
+                batch.append(item)
+                while len(batch) < 100:
+                    try:
+                        batch.append(self.queue.get_nowait())
+                    except queue.Empty:
+                        break
+
+                if batch:
+                    self._ensure_file()
+                    if self.current_file_path:
+                        try:
+                            file_exists = os.path.exists(self.current_file_path)
+                            with open(self.current_file_path, "a", newline="", encoding="utf-8") as f:
+                                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+                                if not file_exists or os.path.getsize(self.current_file_path) == 0:
+                                    writer.writeheader()
+                                for r in batch:
+                                    writer.writerow(r)
+                                f.flush()
+                        except Exception as e:
+                            print(f"[motionTracking] Error writing to CSV {self.current_file_path}: {e}", flush=True)
+            except queue.Empty:
+                continue
+            except Exception:
+                time.sleep(0.1)
+
+    def close(self):
+        self.running = False
 
 
 # =================== TRACKING & INFERENCE ENGINES ===================
@@ -1437,7 +1911,8 @@ def run_inference_loop(headless: bool = False):
     global UNITS, SCALE_BUF, LATEST_FRAME, LATEST_STATS, HIST_DATA, LATEST_MOISTURE, LATEST_HEALTH
     global ALARM_ACTIVE, ALARM_MAX_D_MM, GLOBAL_T_CAP, ALARM_THRESHOLD_MM, CONF_THR
     global GUI_MOUSE_POS, GUI_MOUSE_CLICKED, GUI_RECONNECT_BTN_RECT, GUI_RECONNECTING_UNTIL
-    global GUI_THRESH_MINUS_RECT, GUI_THRESH_PLUS_RECT
+    global GUI_THRESH_MINUS_RECT, GUI_THRESH_PLUS_RECT, GUI_MAX_FILTER_BTN_RECT
+    global FILTER_MAX_1000MM, MAX_SIZE_LIMIT_MM, CONVEYOR_TRACKING_ENABLED, CSV_LOGGING_ENABLED
 
     print(f"[motionTracking] Starting Wood-Chip Monitor on {platform.system()}...", flush=True)
 
@@ -1515,6 +1990,12 @@ def run_inference_loop(headless: bool = False):
     prev_hist_counts = None
     prev_hist_bins = None
 
+    # Initialize High-Speed Conveyor Motion Tracker & Daily CSV Logger
+    tracker = ConveyorLockTracker(max_match_dist=TRACKER_MAX_MATCH_DIST, max_lost_frames=TRACKER_MAX_LOST_FRAMES)
+    csv_logger = WoodChipCSVLogger(out_dir=_resolve_csv_dir(), throttle_sec=CSV_LOG_THROTTLE_SEC) if CSV_LOGGING_ENABLED else None
+    bulk_conveyor_speed = 0.0
+    locked_count = 0
+
     # GUI Display Setup
     window_name = "Wood-Chip Monitor - Live Tracking"
     has_display = True
@@ -1562,11 +2043,11 @@ def run_inference_loop(headless: bool = False):
                 GUI_RECONNECT_BTN_RECT = offline_btn_rect
 
                 # Threshold adjustment widget on offline screen
-                thr_w, thr_h = 190, 44
+                thr_w, thr_h = 240, 48
                 thr_x0 = max(12, CAM_W - thr_w - 20)
                 thr_y0 = 60
-                offline_thresh_minus_rect = (thr_x0 + 8, thr_y0 + 20, thr_x0 + 36, thr_y0 + 39)
-                offline_thresh_plus_rect = (thr_x0 + 118, thr_y0 + 20, thr_x0 + 146, thr_y0 + 39)
+                offline_thresh_minus_rect = (thr_x0 + 10, thr_y0 + 21, thr_x0 + 44, thr_y0 + 43)
+                offline_thresh_plus_rect = (thr_x0 + 144, thr_y0 + 21, thr_x0 + 178, thr_y0 + 43)
                 GUI_THRESH_MINUS_RECT = offline_thresh_minus_rect
                 GUI_THRESH_PLUS_RECT = offline_thresh_plus_rect
 
@@ -1582,6 +2063,8 @@ def run_inference_loop(headless: bool = False):
                     x0=thr_x0, y0=thr_y0,
                     is_hover_minus=is_minus_hover, is_hover_plus=is_plus_hover
                 )
+                offline_frame = draw_bottom_ribbon(offline_frame, normal_count=0, oversize_count=0, alarm_active=False,
+                                                   locked_count=0, filter_max_1000=FILTER_MAX_1000MM)
 
                 with STATE_LOCK:
                     LATEST_FRAME = offline_frame.copy()
@@ -1605,6 +2088,7 @@ def run_inference_loop(headless: bool = False):
                         "alarm_active": bool(ALARM_ACTIVE),
                         "alarm_threshold_mm": float(ALARM_THRESHOLD_MM),
                         "alarm_max_d_mm": float(ALARM_MAX_D_MM) if ALARM_MAX_D_MM is not None else None,
+                        "filter_max_1000mm": bool(FILTER_MAX_1000MM),
                         "last_error": str(last_error),
                     }
 
@@ -1612,7 +2096,11 @@ def run_inference_loop(headless: bool = False):
                     cv2.imshow(window_name, offline_frame)
                     key = cv2.waitKey(30) & 0xFF
 
-                    # Check for mouse click on Reconnect or Threshold buttons
+                    is_max_filter_hover = (GUI_MAX_FILTER_BTN_RECT and
+                                           GUI_MAX_FILTER_BTN_RECT[0] <= mx <= GUI_MAX_FILTER_BTN_RECT[2] and
+                                           GUI_MAX_FILTER_BTN_RECT[1] <= my <= GUI_MAX_FILTER_BTN_RECT[3])
+
+                    # Check for mouse click on Reconnect, Threshold, or Max Filter buttons
                     if GUI_MOUSE_CLICKED:
                         GUI_MOUSE_CLICKED = False
                         if is_reconnect_hover:
@@ -1627,12 +2115,20 @@ def run_inference_loop(headless: bool = False):
                             ALARM_THRESHOLD_MM = min(200.0, ALARM_THRESHOLD_MM + 5.0)
                             print(f"[motionTracking] Alarm threshold increased (+5mm): {ALARM_THRESHOLD_MM:.1f} mm", flush=True)
                             _sync_trackbars(window_name, can_show_gui)
+                        elif is_max_filter_hover:
+                            FILTER_MAX_1000MM = not FILTER_MAX_1000MM
+                            print(f"[motionTracking] Filter bounding boxes > 1000mm: {'ENABLED' if FILTER_MAX_1000MM else 'DISABLED'}", flush=True)
 
                     # Keyboard shortcut: R to reconnect
                     if key == ord('r') or key == ord('R'):
                         print("[motionTracking] 'R' pressed! Attempting camera reconnection...", flush=True)
                         GUI_RECONNECTING_UNTIL = _now() + 1.2
                         t_cap.trigger_reconnect()
+
+                    # Keyboard shortcut: M to toggle max size filter (>1000mm)
+                    if key == ord('m') or key == ord('M'):
+                        FILTER_MAX_1000MM = not FILTER_MAX_1000MM
+                        print(f"[motionTracking] Filter bounding boxes > 1000mm: {'ENABLED' if FILTER_MAX_1000MM else 'DISABLED'}", flush=True)
 
                     # Keyboard shortcuts for threshold adjustment:
                     if key == ord('+') or key == ord('='):
@@ -1693,59 +2189,142 @@ def run_inference_loop(headless: bool = False):
 
             do_infer = (frame_idx % max(1, INFER_EVERY_N_FRAMES) == 0)
 
+            det_boxes_xyxy = np.zeros((0, 4), np.float32)
+            det_scores = np.zeros((0,), np.float32)
+            det_L = np.zeros(0, np.float32)
+            det_W = np.zeros(0, np.float32)
+            det_D = np.zeros(0, np.float32)
+            box_moistures = []
+
             if do_infer:
                 processed_idx += 1
                 try:
                     if isinstance(detr, ContourMotionTracker):
-                        boxes_xyxy, scores = detr.detect_boxes(frame, conf_thr=CONF_THR)
+                        det_boxes_xyxy, det_scores = detr.detect_boxes(frame, conf_thr=CONF_THR)
                     else:
                         x, meta = preprocess_fixed(frame)
                         logits, pred_boxes = detr.infer(x)
-                        boxes_xyxy, scores = postprocess_from_fixed(pred_boxes, logits, meta, conf_thr=CONF_THR)
+                        det_boxes_xyxy, det_scores = postprocess_from_fixed(pred_boxes, logits, meta, conf_thr=CONF_THR)
 
                     last_detr_ts = _now()
                     last_error = None
                 except Exception as e:
                     err = f"Detection failed: {e}"
                     last_error = err
-                    boxes_xyxy = np.zeros((0, 4), np.float32)
-                    scores = np.zeros((0,), np.float32)
+                    det_boxes_xyxy = np.zeros((0, 4), np.float32)
+                    det_scores = np.zeros((0,), np.float32)
 
-                if boxes_xyxy.shape[0] > 0:
-                    keep = nms_np(boxes_xyxy, scores, iou_thr=NMS_IOU)
-                    boxes_xyxy = boxes_xyxy[keep]
-                    scores = scores[keep]
+                if det_boxes_xyxy.shape[0] > 0:
+                    keep = nms_np(det_boxes_xyxy, det_scores, iou_thr=NMS_IOU)
+                    det_boxes_xyxy = det_boxes_xyxy[keep]
+                    det_scores = det_scores[keep]
 
-                # Compute chip sizes
-                L, W, D = compute_LWD(boxes_xyxy)
-                if D.size:
-                    L_buf.extend(L.tolist())
-                    W_buf.extend(W.tolist())
-                    D_buf.extend(D.tolist())
-                    if len(L_buf) > ROLLING_MAX:
-                        del L_buf[: len(L_buf) - ROLLING_MAX]
-                    if len(W_buf) > ROLLING_MAX:
-                        del W_buf[: len(W_buf) - ROLLING_MAX]
-                    if len(D_buf) > ROLLING_MAX:
-                        del D_buf[: len(D_buf) - ROLLING_MAX]
+                # Compute chip sizes (L, W, D)
+                det_L, det_W, det_D = compute_LWD(det_boxes_xyxy)
 
-                # Oversize alarm logic
-                alarm_active = False
-                max_d_mm = None
-                if ALARM_ENABLED and D.size > 0:
-                    max_d_mm = float(np.max(D))
-                    if max_d_mm > ALARM_THRESHOLD_MM:
-                        alarm_active = True
-                ALARM_ACTIVE = alarm_active
-                ALARM_MAX_D_MM = max_d_mm
+                # Optional Toggle: filter out any bounding boxes > 1000mm
+                if FILTER_MAX_1000MM and det_D.size > 0:
+                    valid_mask = (det_D <= MAX_SIZE_LIMIT_MM)
+                    det_boxes_xyxy = det_boxes_xyxy[valid_mask]
+                    det_scores = det_scores[valid_mask]
+                    det_L = det_L[valid_mask]
+                    det_W = det_W[valid_mask]
+                    det_D = det_D[valid_mask]
 
-                last_boxes_xyxy = boxes_xyxy.copy()
-                last_scores = scores.copy()
-                last_D = D.copy()
-            else:
-                boxes_xyxy = last_boxes_xyxy
-                scores = last_scores
-                D = last_D
+                # Moisture Inference
+                if MOISTURE_ENABLED and moist and (processed_idx % max(1, MOISTURE_EVERY_N_FRAMES) == 0):
+                    try:
+                        crops_bhwc, used_boxes = _boxes_to_topk_crops(frame, det_boxes_xyxy, det_scores, MOISTURE_TOPK)
+                        if (crops_bhwc is None or len(used_boxes) == 0) and MOISTURE_FALLBACK_FULLFRAME:
+                            crops_bhwc = np.stack([_prep_moist_crop_bgr(frame, MOISTURE_INPUT_SIZE, use_imagenet=False)], axis=0).astype(np.float32)
+                            used_boxes = []
+
+                        if crops_bhwc is not None:
+                            probs = moist.infer_probs_bhwc(crops_bhwc)
+                            if probs is not None:
+                                mean_probs, pred_idx, pred_label = _moisture_aggregate(probs)
+                                last_moist_ts = _now()
+                                per_box = []
+                                if used_boxes:
+                                    for i, ub in enumerate(used_boxes):
+                                        pi = int(np.argmax(probs[i]))
+                                        pl = MOISTURE_CLASSES[pi] if MOISTURE_CLASSES and pi < len(MOISTURE_CLASSES) else str(pi)
+                                        per_box.append({
+                                            "box": ub,
+                                            "pred": pl,
+                                            "pred_index": pi,
+                                            "probs": {MOISTURE_CLASSES[j]: float(probs[i][j]) for j in range(probs.shape[1])}
+                                        })
+
+                                with STATE_LOCK:
+                                    LATEST_MOISTURE = {
+                                        "ready": True,
+                                        "timestamp": _now(),
+                                        "classes": MOISTURE_CLASSES if MOISTURE_CLASSES else None,
+                                        "mean_pred": pred_label,
+                                        "mean_pred_index": pred_idx,
+                                        "mean_probs": {MOISTURE_CLASSES[i]: float(mean_probs[i]) for i in range(len(mean_probs))},
+                                        "topk": int(MOISTURE_TOPK),
+                                        "boxes_used": int(len(used_boxes)),
+                                        "per_box": per_box,
+                                        "simulation": isinstance(moist, MoistureSim),
+                                    }
+
+                                for dbox in det_boxes_xyxy:
+                                    assigned_m = pred_label
+                                    if used_boxes:
+                                        dcx, dcy = (dbox[0] + dbox[2]) / 2.0, (dbox[1] + dbox[3]) / 2.0
+                                        best_dist = 999.0
+                                        for pb in per_box:
+                                            ub = pb["box"]
+                                            ucx, ucy = (ub["x1"] + ub["x2"]) / 2.0, (ub["y1"] + ub["y2"]) / 2.0
+                                            dist = math.hypot(dcx - ucx, dcy - ucy)
+                                            if dist < best_dist:
+                                                best_dist = dist
+                                                assigned_m = pb["pred"]
+                                    box_moistures.append(assigned_m)
+                    except Exception as e:
+                        last_error = f"Moisture error: {e}"
+
+            # Step the High-Speed Conveyor Motion Tracker & Lock-In System
+            active_tracks = tracker.step(
+                det_boxes_xyxy if do_infer else np.zeros((0, 4), np.float32),
+                det_scores if do_infer else np.zeros((0,), np.float32),
+                det_L if do_infer else np.zeros(0, np.float32),
+                det_W if do_infer else np.zeros(0, np.float32),
+                det_D if do_infer else np.zeros(0, np.float32),
+                moistures=box_moistures if do_infer else None,
+                frame_w=w_f, frame_h=h_f
+            )
+
+            # Filter visible tracks (enforce optional max size toggle: < 1000mm)
+            visible_tracks = []
+            for t in active_tracks:
+                if FILTER_MAX_1000MM and t.d_val > MAX_SIZE_LIMIT_MM:
+                    continue
+                visible_tracks.append(t)
+
+            # Update rolling diameter buffers
+            if visible_tracks:
+                L_buf.extend([t.L_val for t in visible_tracks])
+                W_buf.extend([t.W_val for t in visible_tracks])
+                D_buf.extend([t.d_val for t in visible_tracks])
+                if len(L_buf) > ROLLING_MAX:
+                    del L_buf[: len(L_buf) - ROLLING_MAX]
+                if len(W_buf) > ROLLING_MAX:
+                    del W_buf[: len(W_buf) - ROLLING_MAX]
+                if len(D_buf) > ROLLING_MAX:
+                    del D_buf[: len(D_buf) - ROLLING_MAX]
+
+            # Oversize Alarm Check
+            alarm_active = False
+            max_d_mm = None
+            if ALARM_ENABLED and visible_tracks:
+                max_d_mm = float(max(t.d_val for t in visible_tracks))
+                if max_d_mm > ALARM_THRESHOLD_MM:
+                    alarm_active = True
+            ALARM_ACTIVE = alarm_active
+            ALARM_MAX_D_MM = max_d_mm
 
             vis = frame.copy()
 
@@ -1756,94 +2335,129 @@ def run_inference_loop(headless: bool = False):
                 cv2.circle(vis, (cx, cy), r, (255, 255, 255), 2)
                 cv2.circle(vis, (cx, cy), 3, (0, 0, 255), -1)
 
-            # Count detected chips and classify
-            num_objects = len(boxes_xyxy)
-            normal_count = 0
-            oversize_count = 0
+            # Count and classify tracked chips
+            num_objects = len(visible_tracks)
+            normal_count = sum(1 for t in visible_tracks if not (ALARM_ENABLED and t.d_val > ALARM_THRESHOLD_MM))
+            oversize_count = sum(1 for t in visible_tracks if (ALARM_ENABLED and t.d_val > ALARM_THRESHOLD_MM))
+            locked_count = sum(1 for t in visible_tracks if t.locked)
+            bulk_conveyor_speed = tracker.bulk_speed_px_s
 
-            # Draw bounding boxes (GREEN for normal, RED for oversize)
-            for (x1, y1, x2, y2), sc, d_val in zip(boxes_xyxy.astype(int), scores, D):
+            # Render Bounding Boxes, Reticles, Motion Velocity Vectors & Size Pill Tags
+            unit_str = "mm" if UNITS == "mm" else "px"
+            for trk in visible_tracks:
+                x1, y1, x2, y2 = trk.box.astype(int)
+                x1 = max(0, min(vis.shape[1] - 1, x1))
+                x2 = max(0, min(vis.shape[1] - 1, x2))
+                y1 = max(0, min(vis.shape[0] - 1, y1))
+                y2 = max(0, min(vis.shape[0] - 1, y2))
+                bw = max(1, x2 - x1)
+                bh = max(1, y2 - y1)
+                d_val = trk.d_val
+
                 is_oversized = (ALARM_ENABLED and (d_val > ALARM_THRESHOLD_MM))
-                if is_oversized:
-                    oversize_count += 1
-                else:
-                    normal_count += 1
+                accent_bgr = (45, 60, 255) if is_oversized else ((50, 230, 130) if trk.locked else (0, 220, 255))
+                subtle_bgr = (40, 45, 130) if is_oversized else ((35, 80, 50) if trk.locked else (30, 60, 75))
 
-                color_bgr = (0, 0, 255) if is_oversized else (0, 220, 0)
-                cv2.rectangle(vis, (x1, y1), (x2, y2), color_bgr, 2)
+                # Subtle bounding rect outline
+                cv2.rectangle(vis, (x1, y1), (x2, y2), subtle_bgr, 1, cv2.LINE_AA)
 
-                # Oversize exclamation warning badge
+                # Targeting Corner Brackets (HUD Reticles)
+                c_len = min(14, max(5, min(bw, bh) // 4))
+                # Top-Left corner
+                cv2.line(vis, (x1, y1), (x1 + c_len, y1), accent_bgr, 2, cv2.LINE_AA)
+                cv2.line(vis, (x1, y1), (x1, y1 + c_len), accent_bgr, 2, cv2.LINE_AA)
+                # Top-Right corner
+                cv2.line(vis, (x2, y1), (x2 - c_len, y1), accent_bgr, 2, cv2.LINE_AA)
+                cv2.line(vis, (x2, y1), (x2, y1 + c_len), accent_bgr, 2, cv2.LINE_AA)
+                # Bottom-Left corner
+                cv2.line(vis, (x1, y2), (x1 + c_len, y2), accent_bgr, 2, cv2.LINE_AA)
+                cv2.line(vis, (x1, y2), (x1, y2 - c_len), accent_bgr, 2, cv2.LINE_AA)
+                # Bottom-Right corner
+                cv2.line(vis, (x2, y2), (x2 - c_len, y2), accent_bgr, 2, cv2.LINE_AA)
+                cv2.line(vis, (x2, y2), (x2, y2 - c_len), accent_bgr, 2, cv2.LINE_AA)
+
+                # Lock-In Crosshair Reticle on Centroid
+                tcx = int((x1 + x2) / 2)
+                tcy = int((y1 + y2) / 2)
+                if trk.locked:
+                    cv2.circle(vis, (tcx, tcy), 3, accent_bgr, -1, cv2.LINE_AA)
+                    cv2.line(vis, (tcx - 6, tcy), (tcx + 6, tcy), accent_bgr, 1, cv2.LINE_AA)
+                    cv2.line(vis, (tcx, tcy - 6), (tcx, tcy + 6), accent_bgr, 1, cv2.LINE_AA)
+
+                # Conveyor Motion Velocity Vector Arrow
+                speed = trk.speed_px_s
+                if speed > 15.0:
+                    arrow_len = min(36, max(12, int(speed * 0.08)))
+                    end_x = int(tcx + (trk.vx / speed) * arrow_len)
+                    end_y = int(tcy + (trk.vy / speed) * arrow_len)
+                    cv2.arrowedLine(vis, (tcx, tcy), (end_x, end_y), (0, 230, 255), 2, cv2.LINE_AA, tipLength=0.35)
+
+                # Oversize exclamation warning badge on top-right
                 if is_oversized:
-                    box_w = max(1, x2 - x1)
-                    box_h = max(1, y2 - y1)
-                    badge_r = int(max(6, min(12, min(box_w, box_h) * 0.18)))
+                    badge_r = int(max(7, min(12, min(bw, bh) * 0.18)))
                     cx_badge = x2 - badge_r - 2
                     cy_badge = y1 + badge_r + 2
-                    cv2.circle(vis, (cx_badge, cy_badge), badge_r, (0, 0, 255), -1)
-                    cv2.putText(vis, "!", (cx_badge - badge_r // 3, cy_badge + badge_r // 2 - 2),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, lineType=cv2.LINE_AA)
+                    cv2.circle(vis, (cx_badge, cy_badge), badge_r + 2, (30, 30, 180), -1, cv2.LINE_AA)
+                    cv2.circle(vis, (cx_badge, cy_badge), badge_r, (45, 60, 255), -1, cv2.LINE_AA)
+                    cv2.putText(vis, "!", (cx_badge - 3, cy_badge + 4),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 1, lineType=cv2.LINE_AA)
 
-                # Estimated size label pill (e.g. "120mm")
-                unit_str = "mm" if UNITS == "mm" else "px"
-                label_text = f"{d_val:.0f}{unit_str}"
+                # Modern Glass Size Pill Tag (shows Lock status & estimated size)
+                lock_prefix = f"LOCK #{trk.track_id} " if trk.locked else f"ID #{trk.track_id} "
+                tag_str = f"{lock_prefix}| {d_val:.0f} {unit_str}"
+                font_pill = cv2.FONT_HERSHEY_SIMPLEX
+                (tw, th), baseline = cv2.getTextSize(tag_str, font_pill, 0.38, 1)
 
-                (tw, th), baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1)
-                if y1 - th - 8 >= 0:
-                    lbl_y1 = y1 - th - 8
-                    lbl_y2 = y1
-                    text_y = y1 - 4
+                pill_h = 20
+                pill_w = tw + 18
+                if y1 - pill_h - 4 >= 0:
+                    pill_y1 = y1 - pill_h - 4
                 else:
-                    lbl_y1 = y1
-                    lbl_y2 = y1 + th + 8
-                    text_y = y1 + th + 4
+                    pill_y1 = y2 + 4
+                pill_y2 = pill_y1 + pill_h
 
-                lbl_x1 = max(0, x1)
-                lbl_x2 = min(vis.shape[1] - 1, x1 + tw + 8)
+                pill_x1 = max(0, min(vis.shape[1] - pill_w - 2, x1))
+                pill_x2 = pill_x1 + pill_w
 
-                cv2.rectangle(vis, (lbl_x1, lbl_y1), (lbl_x2, lbl_y2), (18, 20, 24), -1)
-                cv2.rectangle(vis, (lbl_x1, lbl_y1), (lbl_x2, lbl_y2), color_bgr, 1)
-                cv2.putText(vis, label_text, (lbl_x1 + 4, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.48, color_bgr, 1, cv2.LINE_AA)
+                # Draw frosted glass card for tag
+                draw_glass_card(vis, (pill_x1, pill_y1), (pill_x2, pill_y2),
+                                bg_color=(18, 22, 28), border_color=accent_bgr, alpha=0.88, radius=4)
 
-            # Moisture Inference
-            if MOISTURE_ENABLED and moist and do_infer and (processed_idx % max(1, MOISTURE_EVERY_N_FRAMES) == 0):
-                try:
-                    crops_bhwc, used_boxes = _boxes_to_topk_crops(frame, boxes_xyxy, scores, MOISTURE_TOPK)
-                    if (crops_bhwc is None or len(used_boxes) == 0) and MOISTURE_FALLBACK_FULLFRAME:
-                        crops_bhwc = np.stack([_prep_moist_crop_bgr(frame, MOISTURE_INPUT_SIZE, use_imagenet=False)], axis=0).astype(np.float32)
-                        used_boxes = []
+                # Vertical accent indicator on left of pill
+                cv2.rectangle(vis, (pill_x1 + 3, pill_y1 + 3), (pill_x1 + 6, pill_y2 - 3), accent_bgr, -1)
 
-                    if crops_bhwc is not None:
-                        probs = moist.infer_probs_bhwc(crops_bhwc)
-                        if probs is not None:
-                            mean_probs, pred_idx, pred_label = _moisture_aggregate(probs)
-                            last_moist_ts = _now()
-                            per_box = []
-                            if used_boxes:
-                                for i, ub in enumerate(used_boxes):
-                                    pi = int(np.argmax(probs[i]))
-                                    pl = MOISTURE_CLASSES[pi] if MOISTURE_CLASSES and pi < len(MOISTURE_CLASSES) else str(pi)
-                                    per_box.append({
-                                        "box": ub,
-                                        "pred": pl,
-                                        "pred_index": pi,
-                                        "probs": {MOISTURE_CLASSES[j]: float(probs[i][j]) for j in range(probs.shape[1])}
-                                    })
+                # Size text inside pill
+                text_y = pill_y1 + 14
+                cv2.putText(vis, tag_str, (pill_x1 + 10, text_y), font_pill, 0.38, (245, 248, 252), 1, cv2.LINE_AA)
 
-                            with STATE_LOCK:
-                                LATEST_MOISTURE = {
-                                    "ready": True,
-                                    "timestamp": _now(),
-                                    "classes": MOISTURE_CLASSES if MOISTURE_CLASSES else None,
-                                    "mean_pred": pred_label,
-                                    "mean_pred_index": pred_idx,
-                                    "mean_probs": {MOISTURE_CLASSES[i]: float(mean_probs[i]) for i in range(len(mean_probs))},
-                                    "topk": int(MOISTURE_TOPK),
-                                    "boxes_used": int(len(used_boxes)),
-                                    "per_box": per_box,
-                                    "simulation": isinstance(moist, MoistureSim),
-                                }
-                except Exception as e:
-                    last_error = f"Moisture error: {e}"
+            # Asynchronous CSV Logging to 'yyyymmdd_woodChips.csv'
+            if CSV_LOGGING_ENABLED and csv_logger:
+                cur_batch_str = classify_batch(D_buf) if len(D_buf) > 0 else "Pending"
+                for obj_idx, trk in enumerate(visible_tracks):
+                    if now_ts - trk.last_csv_log_ts >= CSV_LOG_THROTTLE_SEC:
+                        trk.last_csv_log_ts = now_ts
+                        is_exceeded = (ALARM_ENABLED and trk.d_val > ALARM_THRESHOLD_MM)
+                        row_data = {
+                            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                            "detected_object_index": int(obj_idx),
+                            "track_id": int(trk.track_id),
+                            "estimated_size_mm": round(float(trk.d_val), 1),
+                            "threshold_size_mm": round(float(ALARM_THRESHOLD_MM), 1),
+                            "threshold_status": "EXCEEDED" if is_exceeded else "NOT_EXCEEDED",
+                            "moisture_level": str(trk.moisture) if trk.moisture else "N/A",
+                            "length_mm": round(float(trk.L_val), 1),
+                            "width_mm": round(float(trk.W_val), 1),
+                            "aspect_ratio": round(float(trk.L_val / max(1.0, trk.W_val)), 2),
+                            "confidence": round(float(trk.score), 2),
+                            "conveyor_speed_px_s": round(float(trk.speed_px_s), 1),
+                            "conveyor_speed_mm_s": round(float(trk.speed_px_s / scale_mean), 1) if (scale_mean and scale_mean > 0) else "N/A",
+                            "bbox_x1": int(round(trk.box[0])),
+                            "bbox_y1": int(round(trk.box[1])),
+                            "bbox_x2": int(round(trk.box[2])),
+                            "bbox_y2": int(round(trk.box[3])),
+                            "batch_quality": str(cur_batch_str)
+                        }
+                        csv_logger.log_detection(row_data)
 
             # Stats Dictionary
             stats_dict = compute_diameter_stats(D_buf, UNITS, scale_mean=scale_mean, scale_std=scale_std)
@@ -1851,10 +2465,13 @@ def run_inference_loop(headless: bool = False):
                 stats_dict["num_objects"] = int(num_objects)
                 stats_dict["normal_count"] = int(normal_count)
                 stats_dict["oversize_count"] = int(oversize_count)
+                stats_dict["locked_count"] = int(locked_count)
+                stats_dict["conveyor_speed_px_s"] = float(bulk_conveyor_speed)
                 stats_dict["alarm_active"] = bool(ALARM_ACTIVE)
                 stats_dict["alarm_threshold_mm"] = float(ALARM_THRESHOLD_MM)
                 stats_dict["alarm_max_d_mm"] = float(ALARM_MAX_D_MM) if ALARM_MAX_D_MM is not None else None
                 stats_dict["ref_diam_mm"] = float(REF_DIAM_MM)
+                stats_dict["filter_max_1000mm"] = bool(FILTER_MAX_1000MM)
 
             # Histogram
             hist_data = None
@@ -1902,6 +2519,9 @@ def run_inference_loop(headless: bool = False):
                 "num_objects": int(num_objects),
                 "normal_count": int(normal_count),
                 "oversize_count": int(oversize_count),
+                "locked_count": int(locked_count),
+                "conveyor_speed_px_s": float(bulk_conveyor_speed),
+                "filter_max_1000mm": bool(FILTER_MAX_1000MM),
                 "last_frame_ts": last_frame_ts,
                 "last_detr_ts": last_detr_ts,
                 "last_moist_ts": last_moist_ts,
@@ -1919,39 +2539,48 @@ def run_inference_loop(headless: bool = False):
                 "last_error": str(last_error) if last_error else None,
             }
 
-            # Draw HUD Overlays: Status Badge, Reconnect Button, Objects Badge, Stats Panel, and Color Legend
+            # Draw HUD Overlays: Status Badge, Reconnect Button, Objects Badge, Threshold Stepper, Stats Panel, Alarm Banner, and Bottom Ribbon
             disp = draw_online_status_badge(vis, t_cap.active_dev, fps, w_f, h_f, model_name=model_name)
 
-            # Online Reconnect Button
-            btn_w, btn_h = 190, 44
-            if w_f >= 700:
-                online_btn_rect = (364, 12, 364 + btn_w, 12 + btn_h)
+            # Modern Top HUD Layout:
+            # [12..320] Status Badge (w=308, h=48)
+            # [332..512] Reconnect Button (w=180, h=48)
+            # [524..734] Objects Badge (w=210, h=48)
+            # [746..986] Threshold Stepper (w=240, h=48)
+            # [w-282..w-12] Stats Panel (w=270, h=316)
+            if w_f >= 1000:
+                online_btn_rect = (332, 12, 512, 60)
+                obj_x0, obj_y0 = 524, 12
+                thr_x0, thr_y0 = 746, 12
+            elif w_f >= 760:
+                online_btn_rect = (332, 12, 512, 60)
+                obj_x0, obj_y0 = 524, 12
+                thr_x0, thr_y0 = 12, 68
             else:
-                online_btn_rect = (12, 62, 12 + btn_w, 62 + btn_h)
+                online_btn_rect = (12, 68, 192, 116)
+                obj_x0, obj_y0 = 12, 124
+                thr_x0, thr_y0 = 12, 180
+
             GUI_RECONNECT_BTN_RECT = online_btn_rect
 
-            # Objects Detected Badge
-            if w_f >= 900:
-                disp = draw_objects_badge(disp, num_objects=num_objects, normal_count=normal_count, oversize_count=oversize_count, x0=566, y0=12)
-            else:
-                disp = draw_objects_badge(disp, num_objects=num_objects, normal_count=normal_count, oversize_count=oversize_count, x0=12, y0=112)
-
-            # Threshold Adjustment Widget
-            if w_f >= 1000:
-                thr_x0, thr_y0 = 788, 12
-            else:
-                thr_x0, thr_y0 = 12, 162
-
-            online_thresh_minus_rect = (thr_x0 + 8, thr_y0 + 20, thr_x0 + 36, thr_y0 + 39)
-            online_thresh_plus_rect = (thr_x0 + 118, thr_y0 + 20, thr_x0 + 146, thr_y0 + 39)
+            # Accurate hitboxes for Minus and Plus in Threshold Stepper
+            online_thresh_minus_rect = (thr_x0 + 10, thr_y0 + 21, thr_x0 + 44, thr_y0 + 43)
+            online_thresh_plus_rect = (thr_x0 + 144, thr_y0 + 21, thr_x0 + 178, thr_y0 + 43)
             GUI_THRESH_MINUS_RECT = online_thresh_minus_rect
             GUI_THRESH_PLUS_RECT = online_thresh_plus_rect
 
+            # Objects Detected Badge (includes locked count)
+            disp = draw_objects_badge(disp, num_objects=num_objects, normal_count=normal_count,
+                                      oversize_count=oversize_count, locked_count=locked_count,
+                                      x0=obj_x0, y0=obj_y0)
+
+            # Reconnect Button
             mx, my = GUI_MOUSE_POS
             is_reconnect_hover = (online_btn_rect[0] <= mx <= online_btn_rect[2] and online_btn_rect[1] <= my <= online_btn_rect[3])
             is_reconnecting = (_now() < GUI_RECONNECTING_UNTIL)
             disp = draw_reconnect_button(disp, online_btn_rect, is_hover=is_reconnect_hover, is_reconnecting=is_reconnecting)
 
+            # Threshold Widget
             is_minus_hover = (online_thresh_minus_rect[0] <= mx <= online_thresh_minus_rect[2] and online_thresh_minus_rect[1] <= my <= online_thresh_minus_rect[3])
             is_plus_hover = (online_thresh_plus_rect[0] <= mx <= online_thresh_plus_rect[2] and online_thresh_plus_rect[1] <= my <= online_thresh_plus_rect[3])
             disp = draw_threshold_widget(
@@ -1960,8 +2589,20 @@ def run_inference_loop(headless: bool = False):
                 is_hover_minus=is_minus_hover, is_hover_plus=is_plus_hover
             )
 
-            disp = draw_stats_panel(disp, D_buf, UNITS, scale_mean=scale_mean, scale_std=scale_std, num_objects=num_objects, normal_count=normal_count, oversize_count=oversize_count)
-            disp = draw_color_legend(disp, normal_count=normal_count, oversize_count=oversize_count)
+            # Telemetry Stats Card (includes conveyor motion, locked chips, max filter, csv status)
+            disp = draw_stats_panel(disp, D_buf, UNITS, scale_mean=scale_mean, scale_std=scale_std,
+                                    num_objects=num_objects, normal_count=normal_count, oversize_count=oversize_count,
+                                    conveyor_speed=bulk_conveyor_speed, locked_count=locked_count,
+                                    filter_max_1000=FILTER_MAX_1000MM)
+
+            # High-visibility alarm banner when oversize chip triggers
+            if ALARM_ACTIVE:
+                disp = draw_alarm_banner(disp, ALARM_MAX_D_MM, ALARM_THRESHOLD_MM)
+
+            # Docked bottom status ribbon with color legend, locked count, max filter toggle, and keycaps
+            disp = draw_bottom_ribbon(disp, normal_count=normal_count, oversize_count=oversize_count,
+                                      alarm_active=ALARM_ACTIVE, locked_count=locked_count,
+                                      filter_max_1000=FILTER_MAX_1000MM)
 
             with STATE_LOCK:
                 LATEST_FRAME = disp.copy()
@@ -1975,7 +2616,11 @@ def run_inference_loop(headless: bool = False):
                 cv2.imshow(window_name, disp)
                 key = cv2.waitKey(1) & 0xFF
 
-                # Check for mouse click on Reconnect or Threshold buttons
+                is_max_filter_hover = (GUI_MAX_FILTER_BTN_RECT and
+                                       GUI_MAX_FILTER_BTN_RECT[0] <= mx <= GUI_MAX_FILTER_BTN_RECT[2] and
+                                       GUI_MAX_FILTER_BTN_RECT[1] <= my <= GUI_MAX_FILTER_BTN_RECT[3])
+
+                # Check for mouse click on Reconnect, Threshold, or Max Filter buttons
                 if GUI_MOUSE_CLICKED:
                     GUI_MOUSE_CLICKED = False
                     if is_reconnect_hover:
@@ -1990,12 +2635,20 @@ def run_inference_loop(headless: bool = False):
                         ALARM_THRESHOLD_MM = min(200.0, ALARM_THRESHOLD_MM + 5.0)
                         print(f"[motionTracking] Alarm threshold increased (+5mm): {ALARM_THRESHOLD_MM:.1f} mm", flush=True)
                         _sync_trackbars(window_name, can_show_gui)
+                    elif is_max_filter_hover:
+                        FILTER_MAX_1000MM = not FILTER_MAX_1000MM
+                        print(f"[motionTracking] Filter bounding boxes > 1000mm: {'ENABLED' if FILTER_MAX_1000MM else 'DISABLED'}", flush=True)
 
                 # Keyboard shortcut: R to reconnect
                 if key == ord('r') or key == ord('R'):
                     print("[motionTracking] 'R' pressed! Attempting camera reconnection...", flush=True)
                     GUI_RECONNECTING_UNTIL = _now() + 1.2
                     t_cap.trigger_reconnect()
+
+                # Keyboard shortcut: M to toggle max size filter (>1000mm)
+                if key == ord('m') or key == ord('M'):
+                    FILTER_MAX_1000MM = not FILTER_MAX_1000MM
+                    print(f"[motionTracking] Filter bounding boxes > 1000mm: {'ENABLED' if FILTER_MAX_1000MM else 'DISABLED'}", flush=True)
 
                 # Keyboard shortcuts for threshold adjustment:
                 if key == ord('+') or key == ord('='):
@@ -2040,6 +2693,8 @@ def run_inference_loop(headless: bool = False):
 
     finally:
         print("[motionTracking] Cleaning up resources...", flush=True)
+        if csv_logger:
+            csv_logger.close()
         try:
             t_cap.stop()
         except Exception:
